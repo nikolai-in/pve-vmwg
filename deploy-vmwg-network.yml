@@ -1,7 +1,7 @@
 ---
 - name: Deploy VM WireGuard Network Configuration
   hosts: proxmox_hosts
-  become: yes
+  become: true
   vars:
     vm_subnet: "10.10.0.0/24"
     vm_gateway: "10.10.0.1"
@@ -14,16 +14,17 @@
 
   tasks:
     - name: Install required packages
-      apt:
+      ansible.builtin.apt:
         name:
           - wireguard-tools
           - dnsmasq
           - iptables-persistent
+          - resolvconf
         state: present
-        update_cache: yes
+        update_cache: true
 
     - name: Create WireGuard configuration directory
-      file:
+      ansible.builtin.file:
         path: /etc/wireguard
         state: directory
         mode: "0700"
@@ -31,85 +32,95 @@
         group: root
 
     - name: Deploy WireGuard configuration
-      template:
+      ansible.builtin.template:
         src: templates/wg0.conf.j2
         dest: /etc/wireguard/wg0.conf
         mode: "0600"
         owner: root
         group: root
       notify:
-        - restart wireguard
+        - Restart wireguard
 
     - name: Create dnsmasq configuration directory for vmwgnat
-      file:
+      ansible.builtin.file:
         path: /etc/dnsmasq.d/vmwgnat
         state: directory
         mode: "0755"
 
     - name: Deploy dnsmasq default configuration
-      copy:
+      ansible.builtin.copy:
         src: src/dnsmasq.d/vmwgnat/00-default.conf
         dest: /etc/dnsmasq.d/vmwgnat/00-default.conf
         mode: "0644"
       notify:
-        - restart dnsmasq
+        - Restart dnsmasq
 
     - name: Deploy dnsmasq vmwg0 interface configuration
-      template:
+      ansible.builtin.template:
         src: templates/10-vmwg0.conf.j2
         dest: /etc/dnsmasq.d/vmwgnat/10-vmwg0.conf
         mode: "0644"
       notify:
-        - restart dnsmasq
+        - Restart dnsmasq
 
     - name: Create network interfaces.d directory
-      file:
+      ansible.builtin.file:
         path: /etc/network/interfaces.d
         state: directory
         mode: "0755"
 
     - name: Deploy vmwgnat network interface configuration
-      template:
+      ansible.builtin.template:
         src: templates/vmwgnat.j2
         dest: /etc/network/interfaces.d/vmwgnat
         mode: "0644"
       notify:
-        - restart networking
+        - Restart networking
 
     - name: Enable IP forwarding
-      sysctl:
+      ansible.posix.sysctl:
         name: net.ipv4.ip_forward
         value: "1"
-        sysctl_set: yes
+        sysctl_set: true
         state: present
-        reload: yes
+        reload: true
 
     - name: Enable WireGuard service
-      systemd:
+      ansible.builtin.systemd:
         name: wg-quick@wg0
-        enabled: yes
+        enabled: true
         state: started
 
     - name: Start and enable dnsmasq
-      systemd:
+      ansible.builtin.systemd:
         name: dnsmasq
-        enabled: yes
+        enabled: true
         state: started
 
+    - name: Check if vmwg0 interface is up
+      ansible.builtin.command: ip link show vmwg0
+      register: vmwg0_status
+      failed_when: false
+      changed_when: false
+
     - name: Bring up vmwg0 interface
-      command: ifup vmwg0
-      ignore_errors: yes
+      ansible.builtin.command: ifup vmwg0
+      when: vmwg0_status.rc != 0 or 'state UP' not in vmwg0_status.stdout
+      register: ifup_result
+      changed_when: ifup_result.rc == 0
 
   handlers:
-    - name: restart wireguard
-      systemd:
+    - name: Restart wireguard
+      ansible.builtin.systemd:
         name: wg-quick@wg0
         state: restarted
 
-    - name: restart dnsmasq
-      systemd:
+    - name: Restart dnsmasq
+      ansible.builtin.systemd:
         name: dnsmasq
         state: restarted
 
-    - name: restart networking
-      command: systemctl restart networking
+    - name: Restart networking
+      ansible.builtin.systemd:
+        name: networking
+        state: restarted

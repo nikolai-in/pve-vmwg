@@ -1,7 +1,6 @@
 [Interface]
 PrivateKey = {{ wireguard_private_key }}
 Address = {{ wireguard_address }}
-DNS = 1.1.1.1, 2606:4700:4700::1111
 MTU = {{ mtu_size }}
 PostUp = ip route add {{ vm_subnet }} dev {{ vm_bridge_interface }}; iptables -A FORWARD -i {{ vm_bridge_interface }} -o {{ wireguard_interface }} -j ACCEPT; iptables -A FORWARD -i {{ wireguard_interface }} -o {{ vm_bridge_interface }} -m state --state RELATED,ESTABLISHED -j ACCEPT
 PostDown = ip route del {{ vm_subnet }} dev {{ vm_bridge_interface }}; iptables -D FORWARD -i {{ vm_bridge_interface }} -o {{ wireguard_interface }} -j ACCEPT; iptables -D FORWARD -i {{ wireguard_interface }} -o {{ vm_bridge_interface }} -m state --state RELATED,ESTABLISHED -j ACCEPT
