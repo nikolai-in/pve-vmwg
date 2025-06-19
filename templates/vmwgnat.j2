@@ -1,0 +1,14 @@
+#version:11
+# shellcheck disable=SC2148
+
+auto {{ vm_bridge_interface }}
+iface {{ vm_bridge_interface }}
+        address {{ vm_gateway }}/24
+        post-up iptables -t nat -A POSTROUTING -s '{{ vm_subnet }}' -o {{ wireguard_interface }} -j MASQUERADE
+        post-down iptables -t nat -D POSTROUTING -s '{{ vm_subnet }}' -o {{ wireguard_interface }} -j MASQUERADE
+        post-up iptables -t raw -I PREROUTING -i fwbr+ -j CT --zone 1
+        post-down iptables -t raw -D PREROUTING -i fwbr+ -j CT --zone 1
+        bridge_ports none
+        bridge_stp off
+        bridge_fd 0
+        ip-forward on

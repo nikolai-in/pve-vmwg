@@ -1,0 +1,115 @@
+---
+- name: Deploy VM WireGuard Network Configuration
+  hosts: proxmox_hosts
+  become: yes
+  vars:
+    vm_subnet: "10.10.0.0/24"
+    vm_gateway: "10.10.0.1"
+    vm_dhcp_range_start: "10.10.0.2"
+    vm_dhcp_range_end: "10.10.0.254"
+    wireguard_interface: "wg0"
+    vm_bridge_interface: "vmwg0"
+    dhcp_lease_time: "12h"
+    mtu_size: 1380
+
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - wireguard-tools
+          - dnsmasq
+          - iptables-persistent
+        state: present
+        update_cache: yes
+
+    - name: Create WireGuard configuration directory
+      file:
+        path: /etc/wireguard
+        state: directory
+        mode: "0700"
+        owner: root
+        group: root
+
+    - name: Deploy WireGuard configuration
+      template:
+        src: templates/wg0.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        mode: "0600"
+        owner: root
+        group: root
+      notify:
+        - restart wireguard
+
+    - name: Create dnsmasq configuration directory for vmwgnat
+      file:
+        path: /etc/dnsmasq.d/vmwgnat
+        state: directory
+        mode: "0755"
+
+    - name: Deploy dnsmasq default configuration
+      copy:
+        src: src/dnsmasq.d/vmwgnat/00-default.conf
+        dest: /etc/dnsmasq.d/vmwgnat/00-default.conf
+        mode: "0644"
+      notify:
+        - restart dnsmasq
+
+    - name: Deploy dnsmasq vmwg0 interface configuration
+      template:
+        src: templates/10-vmwg0.conf.j2
+        dest: /etc/dnsmasq.d/vmwgnat/10-vmwg0.conf
+        mode: "0644"
+      notify:
+        - restart dnsmasq
+
+    - name: Create network interfaces.d directory
+      file:
+        path: /etc/network/interfaces.d
+        state: directory
+        mode: "0755"
+
+    - name: Deploy vmwgnat network interface configuration
+      template:
+        src: templates/vmwgnat.j2
+        dest: /etc/network/interfaces.d/vmwgnat
+        mode: "0644"
+      notify:
+        - restart networking
+
+    - name: Enable IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        sysctl_set: yes
+        state: present
+        reload: yes
+
+    - name: Enable WireGuard service
+      systemd:
+        name: wg-quick@wg0
+        enabled: yes
+        state: started
+
+    - name: Start and enable dnsmasq
+      systemd:
+        name: dnsmasq
+        enabled: yes
+        state: started
+
+    - name: Bring up vmwg0 interface
+      command: ifup vmwg0
+      ignore_errors: yes
+
+  handlers:
+    - name: restart wireguard
+      systemd:
+        name: wg-quick@wg0
+        state: restarted
+
+    - name: restart dnsmasq
+      systemd:
+        name: dnsmasq
+        state: restarted
+
+    - name: restart networking
+      command: systemctl restart networking

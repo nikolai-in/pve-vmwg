@@ -1,0 +1,4 @@
+# Configure DHCP for the {{ vm_bridge_interface }} interface with router option pointing to {{ vm_bridge_interface }} IP
+dhcp-option=tag:dhcpsnat-{{ vm_subnet | replace('.', '-') | replace('/', '-') }},option:router,{{ vm_gateway }}
+dhcp-range=set:dhcpsnat-{{ vm_subnet | replace('.', '-') | replace('/', '-') }},{{ vm_dhcp_range_start }},{{ vm_dhcp_range_end }},255.255.255.0,{{ dhcp_lease_time }}
+interface={{ vm_bridge_interface }}

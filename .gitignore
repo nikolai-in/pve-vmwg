@@ -1,0 +1,70 @@
+# Ansible sensitive files
+inventory.yml
+host_vars/
+group_vars/
+*.vault
+*.key
+*.pem
+
+# WireGuard keys and configs
+*.conf
+wg*.key
+private.key
+public.key
+
+# SSH keys
+id_rsa*
+*.ppk
+
+# Ansible temporary files
+*.retry
+.ansible/
+ansible.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Terraform (if you end up using it too)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# Environment files
+.env
+.env.local
+.env.*.local
