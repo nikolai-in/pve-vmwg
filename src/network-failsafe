@@ -42,7 +42,7 @@ Modes:
 
 Examples:
   network-failsafe arm                    # Arm with 5min timeout, auto mode
-  network-failsafe arm 600 preserve      # Arm with 10min timeout, preserve mode
+  network-failsafe arm 600 preserve       # Arm with 10min timeout, preserve mode
   network-failsafe test                   # Quick 15-second test
   network-failsafe status                 # Check current status
   network-failsafe disarm                 # Disarm active failsafe
