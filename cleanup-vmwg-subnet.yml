@@ -1,0 +1,79 @@
+---
+- name: Clean up VM Subnet with WireGuard VPN Routing
+  hosts: proxmox_hosts
+  become: yes
+  vars:
+    vm_subnet: "10.10.0.0/24"
+    routing_table_id: 200
+
+  tasks:
+    - name: Stop services
+      systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+      loop:
+        - wg-quick@wg0
+        - dnsmasq@vmwgnat
+
+    - name: Bring down vmwg0 interface
+      command: ifdown vmwg0
+      ignore_errors: yes
+
+    - name: Clean up NAT rules
+      iptables:
+        table: nat
+        chain: POSTROUTING
+        source: "{{ vm_subnet }}"
+        out_interface: wg0
+        jump: MASQUERADE
+        state: absent
+      ignore_errors: yes
+
+    - name: Clean up CT rules
+      iptables:
+        table: raw
+        chain: PREROUTING
+        in_interface: fwbr+
+        jump: CT
+        ctzone: 1
+        state: absent
+      ignore_errors: yes
+
+    - name: Clean up policy routing rules
+      shell: |
+        ip rule del from {{ vm_subnet }} table {{ routing_table_id }} 2>/dev/null || true
+        ip rule del to {{ vm_subnet }} table {{ routing_table_id }} 2>/dev/null || true
+      ignore_errors: yes
+
+    - name: Clean up routing table
+      shell: |
+        ip route flush table {{ routing_table_id }} 2>/dev/null || true
+      ignore_errors: yes
+
+    - name: Remove configuration files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/wireguard/wg0.conf
+        - /etc/network/interfaces.d/vmwgnat
+        - /etc/dnsmasq.d/vmwgnat
+        - /etc/systemd/system/dnsmasq@.service
+        - /root/debug-vmwg0.sh
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Save clean iptables rules
+      shell: |
+        iptables-save > /etc/iptables/rules.v4
+        ip6tables-save > /etc/iptables/rules.v6
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Restart networking
+      systemd:
+        name: networking
+        state: restarted

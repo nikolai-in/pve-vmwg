@@ -1,0 +1,140 @@
+---
+- name: Configure Proxmox VM Subnet with WireGuard VPN Routing
+  hosts: proxmox_hosts
+  become: yes
+  vars:
+    vm_subnet: "10.10.0.0/24"
+    vm_gateway: "10.10.0.1"
+    vm_dhcp_range_start: "10.10.0.2"
+    vm_dhcp_range_end: "10.10.0.254"
+    routing_table_id: 200
+
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - wireguard
+          - wireguard-tools
+          - dnsmasq
+          - iptables-persistent
+        state: present
+        update_cache: yes
+
+    - name: Create WireGuard configuration directory
+      file:
+        path: /etc/wireguard
+        state: directory
+        mode: "0700"
+
+    - name: Deploy WireGuard configuration
+      template:
+        src: templates/wg0.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        mode: "0600"
+        backup: yes
+      notify:
+        - restart wireguard
+
+    - name: Create dnsmasq configuration directory
+      file:
+        path: /etc/dnsmasq.d/vmwgnat
+        state: directory
+        mode: "0755"
+
+    - name: Deploy dnsmasq default configuration
+      template:
+        src: templates/dnsmasq-default.conf.j2
+        dest: /etc/dnsmasq.d/vmwgnat/00-default.conf
+        mode: "0644"
+        backup: yes
+      notify:
+        - restart dnsmasq
+
+    - name: Deploy dnsmasq vmwg0 interface configuration
+      template:
+        src: templates/dnsmasq-vmwg0.conf.j2
+        dest: /etc/dnsmasq.d/vmwgnat/10-vmwg0.conf
+        mode: "0644"
+        backup: yes
+      notify:
+        - restart dnsmasq
+
+    - name: Create dnsmasq ethers file
+      file:
+        path: /etc/dnsmasq.d/vmwgnat/ethers
+        state: touch
+        mode: "0644"
+
+    - name: Deploy dnsmasq systemd service template
+      template:
+        src: templates/dnsmasq@.service.j2
+        dest: /etc/systemd/system/dnsmasq@.service
+        mode: "0644"
+        backup: yes
+      notify:
+        - reload systemd
+
+    - name: Deploy network interface configuration
+      template:
+        src: templates/vmwgnat.j2
+        dest: /etc/network/interfaces.d/vmwgnat
+        mode: "0644"
+        backup: yes
+      notify:
+        - reload networking
+
+    - name: Enable and start WireGuard service
+      systemd:
+        name: wg-quick@wg0
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+    - name: Enable and start dnsmasq service for vmwgnat
+      systemd:
+        name: dnsmasq@vmwgnat
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+    - name: Ensure IP forwarding is enabled
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        state: present
+        reload: yes
+
+    - name: Save iptables rules
+      shell: |
+        iptables-save > /etc/iptables/rules.v4
+        ip6tables-save > /etc/iptables/rules.v6
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Create debug script
+      template:
+        src: templates/debug-vmwg0.sh.j2
+        dest: /root/debug-vmwg0.sh
+        mode: "0755"
+
+  handlers:
+    - name: restart wireguard
+      systemd:
+        name: wg-quick@wg0
+        state: restarted
+
+    - name: restart dnsmasq
+      systemd:
+        name: dnsmasq@vmwgnat
+        state: restarted
+
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: reload networking
+      shell: |
+        # Bring down the interface first to clean up
+        ifdown vmwg0 2>/dev/null || true
+        # Bring it back up
+        ifup vmwg0
+      ignore_errors: yes
