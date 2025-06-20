@@ -7,19 +7,38 @@
     routing_table_id: 200
 
   tasks:
-    - name: Stop services
+    - name: Stop WireGuard service
       ansible.builtin.systemd:
-        name: "{{ item }}"
+        name: wg-quick@wg0
         state: stopped
         enabled: false
-      ignore_errors: true
-      loop:
-        - wg-quick@wg0
-        - dnsmasq@vmwgnat
+      failed_when: false
+
+    - name: Stop dnsmasq service
+      ansible.builtin.systemd:
+        name: dnsmasq@vmwgnat
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Check if vmwg0 interface exists
+      ansible.builtin.command: ip link show vmwg0
+      register: vmwg0_check
+      failed_when: false
+      changed_when: false
 
     - name: Bring down vmwg0 interface
       ansible.builtin.command: ifdown vmwg0
-      ignore_errors: true
+      when: vmwg0_check.rc == 0
+      register: ifdown_result
+      failed_when: false
+      changed_when: ifdown_result.rc == 0
+
+    - name: Check existing NAT rules
+      ansible.builtin.command: iptables -t nat -C POSTROUTING -s "{{ vm_subnet }}" -o wg0 -j MASQUERADE
+      register: nat_rule_check
+      failed_when: false
+      changed_when: false
 
     - name: Clean up NAT rules
       ansible.builtin.iptables:
@@ -29,28 +48,65 @@
         out_interface: wg0
         jump: MASQUERADE
         state: absent
-      ignore_errors: true
+      when: nat_rule_check.rc == 0
 
-    - name: Clean up CT rules
-      ansible.builtin.iptables:
-        table: raw
-        chain: PREROUTING
-        in_interface: fwbr+
-        jump: CT
-        ctzone: 1
-        state: absent
-      ignore_errors: true
+    - name: Check existing CT rules
+      ansible.builtin.command: iptables -t raw -C PREROUTING -i fwbr+ -j CT --zone 1
+      register: ct_rule_check
+      failed_when: false
+      changed_when: false
+
+    - name: Clean up CT rules using command (iptables module doesn't support --zone)
+      ansible.builtin.command: iptables -t raw -D PREROUTING -i fwbr+ -j CT --zone 1
+      when: ct_rule_check.rc == 0
+      register: ct_cleanup_result
+      failed_when: false
+      changed_when: ct_cleanup_result.rc == 0
+
+    - name: Check existing policy routing rules
+      ansible.builtin.shell: |
+        set -o pipefail
+        ip rule show | grep -q "from {{ vm_subnet }} lookup {{ routing_table_id }}" ||
+        ip rule show | grep -q "to {{ vm_subnet }} lookup {{ routing_table_id }}"
+      register: policy_rules_check
+      failed_when: false
+      changed_when: false
 
     - name: Clean up policy routing rules
       ansible.builtin.shell: |
-        ip rule del from {{ vm_subnet }} table {{ routing_table_id }} 2>/dev/null || true
-        ip rule del to {{ vm_subnet }} table {{ routing_table_id }} 2>/dev/null || true
-      ignore_errors: true
+        set -o pipefail
+        changed=false
+        if ip rule show | grep -q "from {{ vm_subnet }} lookup {{ routing_table_id }}"; then
+          ip rule del from {{ vm_subnet }} table {{ routing_table_id }}
+          changed=true
+        fi
+        if ip rule show | grep -q "to {{ vm_subnet }} lookup {{ routing_table_id }}"; then
+          ip rule del to {{ vm_subnet }} table {{ routing_table_id }}
+          changed=true
+        fi
+        if [ "$changed" = "true" ]; then
+          echo "Rules removed"
+        fi
+      register: policy_cleanup_result
+      when: policy_rules_check.rc == 0
+      changed_when: "'Rules removed' in policy_cleanup_result.stdout"
+
+    - name: Check if routing table has entries
+      ansible.builtin.command: ip route show table {{ routing_table_id }}
+      register: routing_table_check
+      failed_when: false
+      changed_when: false
 
     - name: Clean up routing table
       ansible.builtin.shell: |
-        ip route flush table {{ routing_table_id }} 2>/dev/null || true
-      ignore_errors: true
+        set -o pipefail
+        if [ -n "$(ip route show table {{ routing_table_id }})" ]; then
+          ip route flush table {{ routing_table_id }}
+          echo "Table flushed"
+        fi
+      register: route_cleanup_result
+      when: routing_table_check.stdout != ""
+      changed_when: "'Table flushed' in route_cleanup_result.stdout"
 
     - name: Remove configuration files
       ansible.builtin.file:
@@ -67,11 +123,23 @@
       ansible.builtin.systemd:
         daemon_reload: true
 
+    - name: Check if iptables rules need saving
+      ansible.builtin.stat:
+        path: /etc/iptables/rules.v4
+      register: iptables_file
+      when: ansible_facts['os_family'] == "Debian"
+
     - name: Save clean iptables rules
       ansible.builtin.shell: |
+        set -o pipefail
         iptables-save > /etc/iptables/rules.v4
         ip6tables-save > /etc/iptables/rules.v6
-      when: ansible_facts['os_family'] == "Debian"
+        echo "Rules saved"
+      register: iptables_save_result
+      when:
+        - ansible_facts['os_family'] == "Debian"
+        - iptables_file.stat.exists
+      changed_when: "'Rules saved' in iptables_save_result.stdout"
 
     - name: Restart networking
       ansible.builtin.systemd:
