@@ -1,62 +1,62 @@
 #!/bin/bash
-# Verify the repository setup and prerequisites
+# Проверка настройки репозитория и предварительных требований
 
 set -e
 
-echo "🔍 Verifying Proxmox VM Network Setup"
-echo "====================================="
+echo "🔍 Проверка настройки сети ВМ Proxmox"
+echo "===================================="
 echo
 
-# Check if we're in the right directory
+# Проверяем, что мы в правильной директории
 if [[ ! -f "deploy-vmwg-subnet.yml" ]]; then
-    echo "❌ Error: Not in the correct directory"
-    echo "Please run this script from the vmwg0 repository root"
+    echo "❌ Ошибка: Не в правильной директории"
+    echo "Пожалуйста, запустите этот скрипт из корня репозитория vmwg0"
     exit 1
 fi
 
-echo "✅ Repository structure looks correct"
+echo "✅ Структура репозитория выглядит правильно"
 
-# Check Ansible installation
+# Проверяем установку Ansible
 if ! command -v ansible >/dev/null 2>&1; then
-    echo "❌ Ansible is not installed"
-    echo "Install with: pip install ansible"
+    echo "❌ Ansible не установлен"
+    echo "Установите с помощью: pip install ansible"
     exit 1
 fi
 
-echo "✅ Ansible is installed: $(ansible --version | head -1)"
+echo "✅ Ansible установлен: $(ansible --version | head -1)"
 
-# Check inventory file
+# Проверяем файл инвентаря
 if [[ ! -f "inventory.yml" ]]; then
-    echo "❌ inventory.yml not found"
-    echo "Please create inventory.yml with your Proxmox host configuration"
+    echo "❌ inventory.yml не найден"
+    echo "Пожалуйста, создайте inventory.yml с конфигурацией вашего хоста Proxmox"
     exit 1
 fi
 
-echo "✅ inventory.yml found"
+echo "✅ inventory.yml найден"
 
-# Test connectivity
+# Тестируем подключение
 echo
-echo "🔗 Testing connectivity to Proxmox host..."
+echo "🔗 Тестирование подключения к хосту Proxmox..."
 if ansible proxmox_hosts -m ping -o; then
-    echo "✅ Proxmox host is reachable"
+    echo "✅ Хост Proxmox доступен"
 else
-    echo "❌ Cannot reach Proxmox host"
-    echo "Check your inventory.yml and SSH connectivity"
+    echo "❌ Не удается достичь хост Proxmox"
+    echo "Проверьте ваш inventory.yml и SSH подключение"
     exit 1
 fi
 
 echo
-echo "📋 Inventory summary:"
+echo "📋 Сводка инвентаря:"
 ansible-inventory --list --yaml | head -20
 
 echo
-echo "🔧 Failsafe system status:"
-echo "- Unified script: src/network-failsafe"
-echo "- Emergency recovery: src/recover-network.sh"
-echo "- Templates: $(find templates/ -name '*.j2' | wc -l) Jinja2 templates"
+echo "🔧 Статус системы резервирования:"
+echo "- Унифицированный скрипт: src/network-failsafe"
+echo "- Экстренное восстановление: src/recover-network.sh"
+echo "- Шаблоны: $(find templates/ -name '*.j2' | wc -l) шаблонов Jinja2"
 
 echo
-echo "✅ Setup verification complete!"
+echo "✅ Проверка настройки завершена!"
 echo
-echo "🚀 Ready to deploy!"
-echo "Run: ansible-playbook -i inventory.yml deploy-vmwg-subnet.yml"
+echo "🚀 Готов к развертыванию!"
+echo "Запустите: ansible-playbook -i inventory.yml deploy-vmwg-subnet.yml"

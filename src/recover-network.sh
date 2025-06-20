@@ -1,34 +1,34 @@
 #!/bin/bash
-# Quick network interface recovery script
-# Run this if the playbook gets stuck on network operations
+# Скрипт быстрого восстановления сетевого интерфейса
+# Запустите это, если playbook зависает на сетевых операциях
 
-echo "=== Network Interface Recovery ==="
+echo "=== Восстановление сетевого интерфейса ==="
 
-# Kill any hanging ifup/ifdown processes
-echo "Killing hanging network processes..."
+# Завершить любые зависшие процессы ifup/ifdown
+echo "Завершение зависших сетевых процессов..."
 pkill -f "ifup\|ifdown" 2>/dev/null || true
 sleep 2
 
-# Check current vmwg0 status
-echo "Current vmwg0 status:"
-ip addr show vmwg0 2>/dev/null || echo "vmwg0 does not exist"
+# Проверить текущий статус vmwg0
+echo "Текущий статус vmwg0:"
+ip addr show vmwg0 2>/dev/null || echo "vmwg0 не существует"
 
-# Force remove vmwg0 if it exists in bad state
+# Принудительно удалить vmwg0 если он существует в плохом состоянии
 if ip link show vmwg0 >/dev/null 2>&1; then
-    echo "Removing existing vmwg0..."
+    echo "Удаление существующего vmwg0..."
     ip link set vmwg0 down 2>/dev/null || true
     ip link delete vmwg0 2>/dev/null || true
 fi
 
-# Recreate vmwg0 bridge
-echo "Creating vmwg0 bridge..."
+# Пересоздать мост vmwg0
+echo "Создание моста vmwg0..."
 ip link add vmwg0 type bridge
 ip addr add 10.10.0.1/24 dev vmwg0
 ip link set vmwg0 up
 
-# Verify
-echo "New vmwg0 status:"
+# Проверить
+echo "Новый статус vmwg0:"
 ip addr show vmwg0
 
-echo "=== Recovery Complete ==="
-echo "You can now continue with the deployment"
+echo "=== Восстановление завершено ==="
+echo "Теперь вы можете продолжить развертывание"

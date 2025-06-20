@@ -1,76 +1,76 @@
-# Proxmox VM Subnet with WireGuard VPN Routing
+# Подсеть ВМ Proxmox с маршрутизацией через WireGuard VPN
 
-This Ansible automation configures a VM subnet (10.10.0.0/24) on Proxmox with WireGuard VPN routing, featuring a robust network failsafe system that protects against lockouts during deployment.
+Эта автоматизация Ansible настраивает подсеть ВМ (10.10.0.0/24) на Proxmox с маршрутизацией через WireGuard VPN, включая надежную систему сетевого резервирования, которая защищает от блокировки доступа во время развертывания.
 
-## Quick Start
+## Быстрый старт
 
 ```bash
-# Verify setup and connectivity
+# Проверить настройку и подключение
 ./verify-setup.sh
 
-# Deploy the network configuration with automatic failsafe
+# Развернуть сетевую конфигурацию с автоматическим резервированием
 ansible-playbook -i inventory.yml deploy-vmwg-subnet.yml
 
-# Clean up (remove all configuration)
+# Очистка (удаление всей конфигурации)
 ansible-playbook -i inventory.yml cleanup-vmwg-subnet.yml
 ```
 
-## What It Creates
+## Что создается
 
-- **VM Bridge**: `vmwg0` (10.10.0.1/24)
-- **DHCP Server**: dnsmasq serving 10.10.0.2-254
-- **WireGuard VPN**: Routes VM traffic through VPN
-- **Network Failsafe**: Automatic rollback on deployment failure
+- **Мост ВМ**: `vmwg0` (10.10.0.1/24)
+- **DHCP сервер**: dnsmasq обслуживает 10.10.0.2-254
+- **WireGuard VPN**: Маршрутизирует трафик ВМ через VPN
+- **Сетевое резервирование**: Автоматический откат при сбое развертывания
 
-## Network Failsafe System
+## Система сетевого резервирования
 
-The deployment includes an automatic failsafe that protects against network lockouts:
+Развертывание включает автоматическое резервирование, которое защищает от блокировки сетевого доступа:
 
-### Basic Usage
+### Основные команды
 
 ```bash
-network-failsafe status          # Check current status
-network-failsafe test            # Quick 15-second test
-network-failsafe arm             # Manual failsafe (5min timeout)
-network-failsafe disarm          # Disable active failsafe
+network-failsafe status          # Проверить текущий статус
+network-failsafe test            # Быстрый 15-секундный тест
+network-failsafe arm             # Ручное резервирование (5мин таймаут)
+network-failsafe disarm          # Отключить активное резервирование
 ```
 
-### How It Works
+### Как это работает
 
-1. **Before Changes**: Creates snapshot of current network state
-2. **During Deployment**: Armed with 5-minute timeout
-3. **On Success**: Automatically disarmed
-4. **On Failure**: Restores original network configuration
+1. **Перед изменениями**: Создает снимок текущего состояния сети
+2. **Во время развертывания**: Активируется с 5-минутным таймаутом
+3. **При успехе**: Автоматически отключается
+4. **При сбое**: Восстанавливает исходную конфигурацию сети
 
-### Modes
+### Режимы
 
-- **auto** (default): Detects current state and acts appropriately
-- **preserve**: Maintains current deployment if triggered
-- **clean**: Restores to pre-deployment state if triggered
+- **auto** (по умолчанию): Определяет текущее состояние и действует соответственно
+- **preserve**: Сохраняет текущее развертывание при срабатывании
+- **clean**: Восстанавливает состояние до развертывания при срабатывании
 
-## Repository Structure
+## Структура репозитория
 
 ```text
-├── deploy-vmwg-subnet.yml      # Main deployment playbook with failsafe
-├── cleanup-vmwg-subnet.yml     # Complete cleanup playbook
-├── inventory.yml               # Ansible inventory configuration
-├── ansible.cfg                 # Ansible configuration
-├── verify-setup.sh             # Setup verification and connectivity test
+├── deploy-vmwg-subnet.yml      # Основной playbook развертывания с резервированием
+├── cleanup-vmwg-subnet.yml     # Playbook полной очистки
+├── inventory.yml               # Конфигурация инвентаря Ansible
+├── ansible.cfg                 # Конфигурация Ansible
+├── verify-setup.sh             # Проверка настройки и подключения
 ├── src/
-│   ├── network-failsafe        # Unified failsafe management script
-│   ├── recover-network.sh      # Emergency network recovery
-│   ├── dnsmasq@.service       # dnsmasq service template
-│   ├── dnsmasq.d/             # dnsmasq DHCP configuration
-│   ├── network/               # Network interface configurations
-│   └── wireguard/             # WireGuard VPN configuration
-└── templates/                 # Jinja2 templates for dynamic configs
+│   ├── network-failsafe        # Унифицированный скрипт управления резервированием
+│   ├── recover-network.sh      # Экстренное восстановление сети
+│   ├── dnsmasq@.service       # Шаблон службы dnsmasq
+│   ├── dnsmasq.d/             # Конфигурация DHCP dnsmasq
+│   ├── network/               # Конфигурации сетевых интерфейсов
+│   └── wireguard/             # Конфигурация WireGuard VPN
+└── templates/                 # Шаблоны Jinja2 для динамических конфигураций
 ```
 
-## How to Use
+## Как использовать
 
-### 1. Configure Your Environment
+### 1. Настройте окружение
 
-Edit `inventory.yml` with your Proxmox host details and WireGuard settings:
+Отредактируйте `inventory.yml` с деталями вашего хоста Proxmox и настройками WireGuard:
 
 ```yaml
 proxmox_hosts:
@@ -79,133 +79,133 @@ proxmox_hosts:
       ansible_host: your.proxmox.ip
       wireguard_private_key: "your-private-key"
       wireguard_peer_public_key: "server-public-key"
-      # ... other WireGuard settings
+      # ... другие настройки WireGuard
 ```
 
-### 2. Deploy with Automatic Failsafe
+### 2. Развертывание с автоматическим резервированием
 
-The deployment automatically arms a 5-minute failsafe that will restore your network if anything goes wrong:
+Развертывание автоматически активирует 5-минутное резервирование, которое восстановит вашу сеть в случае проблем:
 
 ```bash
-# Deploy the complete network stack
+# Развернуть полный сетевой стек
 ansible-playbook -i inventory.yml deploy-vmwg-subnet.yml
 ```
 
-The failsafe system will:
+Система резервирования будет:
 
-- Take a snapshot of your current network state
-- Deploy the new configuration
-- Automatically restore the original state if deployment fails
-- Disarm itself when deployment succeeds
+- Делать снимок текущего состояния сети
+- Развертывать новую конфигурацию
+- Автоматически восстанавливать исходное состояние при сбое развертывания
+- Отключаться при успешном развертывании
 
-### 3. Test and Verify
+### 3. Тестирование и проверка
 
-After deployment:
+После развертывания:
 
 ```bash
-# SSH to your Proxmox host and run diagnostics
+# SSH на ваш хост Proxmox и запустите диагностику
 ssh root@your-proxmox-host
 /root/debug-vmwg0.sh
 ```
 
-### 4. Create VMs
+### 4. Создание ВМ
 
-In the Proxmox web interface:
+В веб-интерфейсе Proxmox:
 
-1. Create VMs and assign them to the `vmwg0` bridge
-2. VMs will automatically get DHCP addresses from 10.10.0.2-254
-3. All VM traffic will route through your WireGuard VPN
+1. Создайте ВМ и назначьте их мосту `vmwg0`
+2. ВМ автоматически получат DHCP адреса из диапазона 10.10.0.2-254
+3. Весь трафик ВМ будет маршрутизироваться через ваш WireGuard VPN
 
-## Advanced Configuration
+## Расширенная настройка
 
-### Network Variables
+### Сетевые переменные
 
-These variables in `deploy-vmwg-subnet.yml` control the network setup:
+Эти переменные в `deploy-vmwg-subnet.yml` управляют настройкой сети:
 
 ```yaml
 vars:
-  vm_subnet: "10.10.0.0/24" # VM subnet range
-  vm_gateway: "10.10.0.1" # Gateway IP for VMs
-  vm_dhcp_range_start: "10.10.0.2" # DHCP range start
-  vm_dhcp_range_end: "10.10.0.254" # DHCP range end
-  routing_table_id: 200 # Linux routing table ID
+  vm_subnet: "10.10.0.0/24" # Диапазон подсети ВМ
+  vm_gateway: "10.10.0.1" # IP шлюза для ВМ
+  vm_dhcp_range_start: "10.10.0.2" # Начало диапазона DHCP
+  vm_dhcp_range_end: "10.10.0.254" # Конец диапазона DHCP
+  routing_table_id: 200 # ID таблицы маршрутизации Linux
 ```
 
-### Manual Failsafe Control
+### Ручное управление резервированием
 
-You can also control the failsafe manually on the Proxmox host:
+Вы также можете управлять резервированием вручную на хосте Proxmox:
 
 ```bash
-# Check failsafe status
+# Проверить статус резервирования
 network-failsafe status
 
-# Arm failsafe with custom timeout (10 minutes)
+# Активировать резервирование с пользовательским таймаутом (10 минут)
 network-failsafe arm 600
 
-# Test the failsafe system (15 second test)
+# Протестировать систему резервирования (15-секундный тест)
 network-failsafe test
 
-# Disarm active failsafe
+# Отключить активное резервирование
 network-failsafe disarm
 
-# Manual restore from snapshot
+# Ручное восстановление из снимка
 network-failsafe restore
 ```
 
-## Emergency Recovery
+## Экстренное восстановление
 
-If something goes wrong and you lose network access:
+Если что-то пошло не так и вы потеряли сетевой доступ:
 
-### From Console/IPMI
+### Из консоли/IPMI
 
 ```bash
-# Quick network interface recovery
+# Быстрое восстановление сетевого интерфейса
 /usr/local/bin/recover-network.sh
 
-# Or manually restore via failsafe
+# Или ручное восстановление через резервирование
 network-failsafe restore
 ```
 
-### Complete System Recovery
+### Полное восстановление системы
 
 ```bash
-# Check what happened
+# Проверить что произошло
 network-failsafe status
 
-# Remove any stuck processes
+# Удалить зависшие процессы
 pkill -f "network-failsafe"
 rm -f /tmp/network-failsafe.lock
 
-# Run emergency cleanup
+# Запустить экстренную очистку
 ansible-playbook -i inventory.yml cleanup-vmwg-subnet.yml
 ```
 
-## Requirements
+## Требования
 
-- Proxmox VE host
-- Ansible with community.general collection
-- WireGuard configuration in templates/wg0.conf.j2
-- SSH access to Proxmox host
+- Хост Proxmox VE
+- Ansible с коллекцией community.general
+- Конфигурация WireGuard в templates/wg0.conf.j2
+- SSH доступ к хосту Proxmox
 
-## Safety Features
+## Функции безопасности
 
-- **Automatic Failsafe**: 5-minute timeout protection during deployment
-- **Network Snapshots**: Complete state backup before changes
-- **Service Management**: Proper start/stop of network services
-- **Rollback Support**: Can restore to any previous state
-- **Emergency Scripts**: Manual recovery tools
+- **Автоматическое резервирование**: Защита таймаутом 5 минут во время развертывания
+- **Снимки сети**: Полное резервное копирование состояния перед изменениями
+- **Управление службами**: Правильный запуск/остановка сетевых служб
+- **Поддержка отката**: Может восстановить любое предыдущее состояние
+- **Аварийные скрипты**: Инструменты ручного восстановления
 
-## Testing
+## Тестирование
 
 ```bash
-# Test the failsafe system
+# Протестировать систему резервирования
 network-failsafe test
 
-# Test with custom timeout
+# Тест с пользовательским таймаутом
 network-failsafe test 30
 
-# Check deployment status
+# Проверить статус развертывания
 network-failsafe status
 ```
 
-The failsafe system ensures you won't get locked out during network configuration changes.
+Система резервирования гарантирует, что вы не будете заблокированы во время изменений конфигурации сети.

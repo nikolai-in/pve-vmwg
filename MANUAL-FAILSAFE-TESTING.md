@@ -1,210 +1,210 @@
-# Manual Failsafe Testing Guide
+# Руководство по ручному тестированию резервной системы
 
-Quick guide to manually test the network failsafe system on your Proxmox host.
+Быстрое руководство по ручному тестированию системы сетевого резервирования на вашем хосте Proxmox.
 
-## Prerequisites
+## Предварительные требования
 
-1. Deploy the system first:
+1. Сначала разверните систему:
 
    ```bash
    ansible-playbook -i inventory.yml deploy-vmwg-subnet.yml
    ```
 
-2. SSH to your Proxmox host:
+2. SSH на ваш хост Proxmox:
 
    ```bash
    ssh root@your-proxmox-host
    ```
 
-## Basic Testing Commands
+## Основные команды тестирования
 
-### 1. Quick Status Check
+### 1. Быстрая проверка статуса
 
 ```bash
 network-failsafe status
 ```
 
-**What to expect:** Shows current failsafe state, available snapshots, and recent activity.
+**Что ожидать:** Показывает текущее состояние резервирования, доступные снимки и недавнюю активность.
 
-### 2. Built-in Test (Recommended)
+### 2. Встроенный тест (Рекомендуется)
 
 ```bash
 network-failsafe test
 ```
 
-**What happens:**
+**Что происходит:**
 
-- Automatically detects current state (deployed/clean)
-- Arms failsafe for 15 seconds
-- Waits for timeout and shows results
-- **Safe to run** - designed for testing
+- Автоматически определяет текущее состояние (развернуто/чисто)
+- Активирует резервирование на 15 секунд
+- Ждет таймаута и показывает результаты
+- **Безопасно для запуска** - создан для тестирования
 
-### 3. Custom Timeout Test
+### 3. Тест с пользовательским таймаутом
 
 ```bash
 network-failsafe test 30
 ```
 
-**Use case:** Test with longer timeout (30 seconds) to observe behavior.
+**Случай использования:** Тест с более длинным таймаутом (30 секунд) для наблюдения за поведением.
 
-## Manual Step-by-Step Testing
+## Ручное пошаговое тестирование
 
-### Test Scenario 1: Preserve Mode (When Deployed)
+### Тестовый сценарий 1: Режим сохранения (Когда развернуто)
 
 ```bash
-# 1. Check current state
+# 1. Проверить текущее состояние
 network-failsafe status
 
-# 2. Arm failsafe with short timeout
+# 2. Активировать резервирование с коротким таймаутом
 network-failsafe arm 60 preserve
 
-# 3. Monitor status
+# 3. Отслеживать статус
 network-failsafe status
 
-# 4. Wait for timeout (or disarm early)
-# network-failsafe disarm  # Optional: disarm before timeout
+# 4. Дождаться таймаута (или отключить досрочно)
+# network-failsafe disarm  # Опционально: отключить до таймаута
 
-# 5. Check results after timeout
+# 5. Проверить результаты после таймаута
 network-failsafe status
-ip addr show vmwg0  # Should still exist
-systemctl status wg-quick@wg0  # Should still be running
+ip addr show vmwg0  # Должен все еще существовать
+systemctl status wg-quick@wg0  # Должен все еще работать
 ```
 
-### Test Scenario 2: Clean Mode (Before Deployment)
+### Тестовый сценарий 2: Режим очистки (До развертывания)
 
 ```bash
-# 1. Clean up first
+# 1. Сначала очистить
 ansible-playbook -i inventory.yml cleanup-vmwg-subnet.yml
 
-# 2. SSH back to Proxmox and test
+# 2. SSH обратно на Proxmox и тестировать
 network-failsafe arm 60 clean
 
-# 3. Manually break something (simulate deployment failure)
+# 3. Вручную что-то сломать (имитировать сбой развертывания)
 ip link add dummy0 type dummy
 ip addr add 192.168.99.1/24 dev dummy0
 
-# 4. Wait for failsafe to trigger (60 seconds)
-# It should remove the dummy interface and restore clean state
+# 4. Дождаться срабатывания резервирования (60 секунд)
+# Должно удалить dummy интерфейс и восстановить чистое состояние
 ```
 
-## What to Watch For
+## На что обращать внимание
 
-### ✅ Success Indicators
+### ✅ Индикаторы успеха
 
 ```bash
-# Check logs for trigger
+# Проверить логи на срабатывание
 tail -f /var/log/network-failsafe.log
 
-# Look for these messages:
+# Искать эти сообщения:
 # "FAILSAFE TRIGGERED - Network failsafe timeout reached"
 # "FAILSAFE COMPLETE - Network restored to [state]"
 ```
 
-### 🔍 Verification Commands
+### 🔍 Команды проверки
 
 ```bash
-# Check network interfaces
+# Проверить сетевые интерфейсы
 ip addr show
 
-# Check services
+# Проверить службы
 systemctl status wg-quick@wg0
 systemctl status dnsmasq@vmwgnat
 
-# Check firewall rules
+# Проверить правила файрвола
 iptables -t nat -L POSTROUTING -n | grep 10.10.0
 
-# Check routing
+# Проверить маршрутизацию
 ip rule show | grep 200
 ```
 
-## Advanced Testing
+## Продвинутое тестирование
 
-### Test Different Modes
+### Тестирование разных режимов
 
 ```bash
-# Auto mode (detects current state)
+# Авто режим (определяет текущее состояние)
 network-failsafe arm 30 auto
 
-# Preserve mode (keeps current deployment)
+# Режим сохранения (сохраняет текущее развертывание)
 network-failsafe arm 30 preserve
 
-# Clean mode (restores to pre-deployment state)
+# Режим очистки (восстанавливает состояние до развертывания)
 network-failsafe arm 30 clean
 ```
 
-### Manual Snapshot Testing
+### Ручное тестирование снимков
 
 ```bash
-# Create manual snapshot
-network-failsafe arm 30  # This creates snapshots
+# Создать ручной снимок
+network-failsafe arm 30  # Это создает снимки
 
-# List available snapshots
+# Список доступных снимков
 network-failsafe status
 
-# Manual restore from snapshot
+# Ручное восстановление из снимка
 network-failsafe restore
-# Then select: pre-failsafe or target-state
+# Затем выберите: pre-failsafe или target-state
 ```
 
-## Troubleshooting
+## Устранение неполадок
 
-### If Test Fails
+### Если тест не прошел
 
 ```bash
-# Check background processes
+# Проверить фоновые процессы
 ps aux | grep network-failsafe
 
-# Check for stuck lock file
+# Проверить заблокированный lock файл
 ls -la /tmp/network-failsafe.lock
 
-# Force cleanup
+# Принудительная очистка
 pkill -f network-failsafe
 rm -f /tmp/network-failsafe.lock
 
-# Check logs
+# Проверить логи
 tail -20 /var/log/network-failsafe.log
 ```
 
-### Emergency Recovery
+### Экстренное восстановление
 
 ```bash
-# If network gets stuck
+# Если сеть зависла
 /usr/local/bin/recover-network.sh
 
-# Or complete cleanup
+# Или полная очистка
 ansible-playbook -i inventory.yml cleanup-vmwg-subnet.yml
 ```
 
-## Quick Test Sequence (5 minutes)
+## Быстрая последовательность тестов (5 минут)
 
 ```bash
-# 1. Quick status
+# 1. Быстрый статус
 network-failsafe status
 
-# 2. Auto test (15 seconds)
+# 2. Авто тест (15 секунд)
 network-failsafe test
 
-# 3. Manual 30-second test
+# 3. Ручной 30-секундный тест
 network-failsafe arm 30
 
-# 4. Watch countdown and logs
+# 4. Наблюдать обратный отсчет и логи
 tail -f /var/log/network-failsafe.log &
 sleep 35
 
-# 5. Verify results
+# 5. Проверить результаты
 network-failsafe status
 ```
 
-## Expected Results
+## Ожидаемые результаты
 
-### In Deployed State
+### В развернутом состоянии
 
-- **Preserve mode**: vmwg0 interface remains, services keep running
-- **Clean mode**: Everything gets removed, back to original state
+- **Режим сохранения**: интерфейс vmwg0 остается, службы продолжают работать
+- **Режим очистки**: Все удаляется, возврат к исходному состоянию
 
-### In Clean State
+### В чистом состоянии
 
-- **Clean mode**: System stays clean (no changes)
-- **Preserve mode**: Not much to preserve, should stay clean
+- **Режим очистки**: Система остается чистой (никаких изменений)
+- **Режим сохранения**: Нечего сохранять, должна остаться чистой
 
-The failsafe system is designed to be safe to test - it only affects network configuration and has multiple safeguards built in.
+Система резервирования разработана для безопасного тестирования - она влияет только на конфигурацию сети и имеет множество встроенных защитных механизмов.
