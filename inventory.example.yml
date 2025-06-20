@@ -1,0 +1,14 @@
+---
+# Proxmox host configuration
+proxmox_hosts:
+  hosts:
+    pve:
+      ansible_host: 10.1.10.1
+      ansible_user: root
+
+      # WireGuard configuration
+      wireguard_private_key: "put_your_private_key_here"
+      wireguard_address: "put_wireguard_address_here"
+      wireguard_peer_public_key: "who_is_rem_huh"
+      wireguard_preshared_key: "put_preshared_key_here"
+      wireguard_endpoint: "i_love_emilia.local:51820"
