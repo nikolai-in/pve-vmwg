@@ -27,6 +27,7 @@ ansible-playbook -i inventory.yml cleanup-vmwg-subnet.yml
 The deployment includes an automatic failsafe that protects against network lockouts:
 
 ### Basic Usage
+
 ```bash
 network-failsafe status          # Check current status
 network-failsafe test            # Quick 15-second test
@@ -35,12 +36,14 @@ network-failsafe disarm          # Disable active failsafe
 ```
 
 ### How It Works
+
 1. **Before Changes**: Creates snapshot of current network state
 2. **During Deployment**: Armed with 5-minute timeout
 3. **On Success**: Automatically disarmed
 4. **On Failure**: Restores original network configuration
 
 ### Modes
+
 - **auto** (default): Detects current state and acts appropriately
 - **preserve**: Maintains current deployment if triggered
 - **clean**: Restores to pre-deployment state if triggered
@@ -89,6 +92,7 @@ ansible-playbook -i inventory.yml deploy-vmwg-subnet.yml
 ```
 
 The failsafe system will:
+
 - Take a snapshot of your current network state
 - Deploy the new configuration
 - Automatically restore the original state if deployment fails
@@ -107,6 +111,7 @@ ssh root@your-proxmox-host
 ### 4. Create VMs
 
 In the Proxmox web interface:
+
 1. Create VMs and assign them to the `vmwg0` bridge
 2. VMs will automatically get DHCP addresses from 10.10.0.2-254
 3. All VM traffic will route through your WireGuard VPN
@@ -119,11 +124,11 @@ These variables in `deploy-vmwg-subnet.yml` control the network setup:
 
 ```yaml
 vars:
-  vm_subnet: "10.10.0.0/24"          # VM subnet range
-  vm_gateway: "10.10.0.1"            # Gateway IP for VMs
-  vm_dhcp_range_start: "10.10.0.2"   # DHCP range start
-  vm_dhcp_range_end: "10.10.0.254"   # DHCP range end
-  routing_table_id: 200              # Linux routing table ID
+  vm_subnet: "10.10.0.0/24" # VM subnet range
+  vm_gateway: "10.10.0.1" # Gateway IP for VMs
+  vm_dhcp_range_start: "10.10.0.2" # DHCP range start
+  vm_dhcp_range_end: "10.10.0.254" # DHCP range end
+  routing_table_id: 200 # Linux routing table ID
 ```
 
 ### Manual Failsafe Control
@@ -152,6 +157,7 @@ network-failsafe restore
 If something goes wrong and you lose network access:
 
 ### From Console/IPMI
+
 ```bash
 # Quick network interface recovery
 /usr/local/bin/recover-network.sh
@@ -161,6 +167,7 @@ network-failsafe restore
 ```
 
 ### Complete System Recovery
+
 ```bash
 # Check what happened
 network-failsafe status
