@@ -38,6 +38,19 @@
         dest: /usr/local/bin/recover-network.sh
         mode: "0755"
 
+    - name: Deploy failsafe test scripts
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "0755"
+      loop:
+        - src: src/test-failsafe.sh
+          dest: /usr/local/bin/test-failsafe.sh
+        - src: src/quick-test-failsafe.sh
+          dest: /usr/local/bin/quick-test-failsafe.sh
+        - src: src/verify-failsafe.sh
+          dest: /usr/local/bin/verify-failsafe.sh
+
     - name: Arm network failsafe (5 minute timeout)
       ansible.builtin.command: /usr/local/bin/network-failsafe.sh 300
       register: failsafe_result
@@ -249,9 +262,13 @@
           Network failsafe has been disarmed.
           VM subnet {{ vm_subnet }} is now active with WireGuard VPN routing.
 
-          Emergency scripts available:
-          - /usr/local/bin/recover-network.sh (if network issues occur)
-          - /root/debug-vmwg0.sh (troubleshooting)
+          🛠️  Available scripts:
+          - /usr/local/bin/recover-network.sh (emergency network recovery)
+          - /usr/local/bin/quick-test-failsafe.sh (test failsafe system)
+          - /usr/local/bin/test-failsafe.sh (comprehensive failsafe tests)
+          - /root/debug-vmwg0.sh (network troubleshooting)
+
+          📋 To test failsafe: /usr/local/bin/quick-test-failsafe.sh
 
   handlers:
     - name: Restart wireguard
