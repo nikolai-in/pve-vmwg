@@ -50,6 +50,8 @@
           dest: /usr/local/bin/quick-test-failsafe.sh
         - src: src/verify-failsafe.sh
           dest: /usr/local/bin/verify-failsafe.sh
+        - src: src/cleanup-failsafe.sh
+          dest: /usr/local/bin/cleanup-failsafe.sh
 
     - name: Arm network failsafe (5 minute timeout)
       ansible.builtin.command: /usr/local/bin/network-failsafe.sh 300
