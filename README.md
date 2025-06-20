@@ -1,78 +1,106 @@
 # Proxmox: подсеть ВМ через WireGuard
 
-Ansible-скрипты для настройки изолированной подсети ВМ на Proxmox. Весь трафик ВМ идет через WireGuard VPN. С защитой от потери доступа к серверу.
+Ansible-скрипты для создания подсети ВМ на Proxmox. Весь трафик ВМ идет через WireGuard VPN. С защитой от потери доступа к серверу.
 
 ## Содержание
 
-- [Быстрый старт](#быстрый-старт)
-- [Что получится](#что-получится)
-- [Настройка](#настройка)
-- [Защита от блокировки](#защита-от-блокировки)
-- [Тестирование системы](#тестирование-системы)
-- [Создание ВМ](#создание-вм)
-- [Экстренное восстановление](#экстренное-восстановление)
-- [Структура проекта](#структура-проекта)
+- [Proxmox: подсеть ВМ через WireGuard](#proxmox-подсеть-вм-через-wireguard)
+  - [Содержание](#содержание)
+  - [Требования](#требования)
+  - [Что получится](#что-получится)
+  - [Структура проекта](#структура-проекта)
+  - [Быстрый старт](#быстрый-старт)
+    - [Настройка переменных](#настройка-переменных)
+  - [Защита от ошибок конфигурации сети](#защита-от-ошибок-конфигурации-сети)
+    - [Как работает](#как-работает)
+    - [Команды](#команды)
+    - [Если что-то пошлось не так](#если-что-то-пошлось-не-так)
+      - [Из консоли серверa Proxmox](#из-консоли-серверa-proxmox)
+  - [Тестирование системы](#тестирование-системы)
+    - [Быстрая проверка](#быстрая-проверка)
+    - [Ручное тестирование](#ручное-тестирование)
+    - [Проверка сети](#проверка-сети)
 
-## Быстрый старт
+## Требования
 
-```bash
-# Настроить инвентарь
-cp inventory.example.yml inventory.yml
-# отредактировать inventory.yml с вашими данными
-
-# Проверить что все готово
-./verify-setup.sh
-
-# Настроить сеть (с защитой от блокировки)
-ansible-playbook deploy-vmwg-subnet.yml
-
-# Убрать все настройки
-ansible-playbook cleanup-vmwg-subnet.yml
-```
+- Proxmox VE
+- Ansible
+- SSH доступ к Proxmox хосту
+- Данные WireGuard сервера
 
 ## Что получится
 
 - **Мост vmwg0** (10.10.0.1/24) — к нему подключаются ВМ
-- **DHCP** через dnsmasq раздает IP 10.10.0.2-254  
+- **DHCP** через dnsmasq раздает IP 10.10.0.2-254
 - **VPN**: весь трафик ВМ через WireGuard
 - **Защита**: откатывается автоматически, если что-то сломается
 
-## Настройка
+## Структура проекта
 
-### Скопировать пример конфига
-
-```bash
-cp inventory.example.yml inventory.yml
+```text
+├── deploy-vmwg-subnet.yml      # основной плейбук
+├── cleanup-vmwg-subnet.yml     # удаление всего
+├── inventory.yml               # ваш конфиг (создать из .example)
+├── inventory.example.yml       # пример конфига
+├── ansible.cfg                 # настройки Ansible
+├── verify-setup.sh             # проверка готовности
+├── src/
+│   ├── network-failsafe        # скрипт защиты сети
+│   └── recover-network.sh      # аварийное восстановление
+└── templates/                  # шаблоны конфигов
+    ├── debug-vmwg0.sh.j2       # диагностика
+    ├── dnsmasq-default.conf.j2 # базовая настройка dnsmasq
+    ├── dnsmasq-vmwg0.conf.j2   # DHCP для vmwg0
+    ├── dnsmasq@.service.j2     # systemd сервис
+    ├── vmwgnat.j2              # сетевой интерфейс
+    └── wg0.conf.j2             # конфиг WireGuard
 ```
 
-### Заполнить свои данные в inventory.yml
+## Быстрый старт
+
+1. Скопировать пример конфига
+
+   ```bash
+   cp inventory.example.yml inventory.yml
+   ```
+
+2. Заполнить свои данные в [inventory.yml](inventory.yml)
+
+3. Изменить конфигурацию ansible в [ansible.cfg](ansible.cfg), если не используете WSL
+
+4. Развернуть
+
+   ```bash
+   ansible-playbook deploy-vmwg-subnet.yml
+   ```
+
+5. В случае неудовлетворения, можно откатить изменения:
+
+   ```bash
+   ansible-playbook cleanup-vmwg-subnet.yml
+   ```
+
+### Настройка переменных
+
+В `deploy-vmwg-subnet.yml` можно изменить:
 
 ```yaml
-proxmox_hosts:
-  hosts:
-    pve:
-      ansible_host: 10.1.10.1
-      wireguard_private_key: "ваш_приватный_ключ"
-      wireguard_address: "10.8.0.10/24, fdcc:ad94:bacf:61a4::cafe:a/112"
-      wireguard_peer_public_key: "публичный_ключ_сервера"
-      wireguard_preshared_key: "pre_shared_ключ"
-      wireguard_endpoint: "ваш.сервер.com:51820"
+vars:
+  vm_subnet: "10.10.0.0/24" # подсеть ВМ
+  vm_gateway: "10.10.0.1" # шлюз
+  vm_dhcp_range_start: "10.10.0.2" # начало DHCP
+  vm_dhcp_range_end: "10.10.0.254" # конец DHCP
+  routing_table_id: 200 # ID таблицы маршрутизации
 ```
 
-### Развернуть
-
-```bash
-ansible-playbook deploy-vmwg-subnet.yml
-```
-
-## Защита от блокировки
+## Защита от ошибок конфигурации сети
 
 Чтобы не потерять доступ к серверу при настройке сети:
 
 ### Как работает
 
 1. Сохраняет текущие настройки
-2. Ставит таймер на 5 минут  
+2. Ставит таймер на 5 минут
 3. Если все ОК — отключается сама
 4. Если сломалось — откатывает обратно
 
@@ -83,6 +111,31 @@ network-failsafe status          # статус
 network-failsafe test            # тест на 15 секунд
 network-failsafe arm 300         # включить на 5 минут
 network-failsafe disarm          # выключить
+```
+
+### Если что-то пошлось не так
+
+```bash
+# Откат изменений
+ansible-playbook cleanup-vmwg-subnet.yml
+```
+
+#### Из консоли серверa Proxmox
+
+```bash
+# Проверить процессы защиты
+ps aux | grep network-failsafe
+
+# Почистить зависшие процессы
+pkill -f network-failsafe
+rm -f /tmp/network-failsafe.lock
+
+# Логи
+tail -20 /var/log/network-failsafe.log
+
+# Восстановление сети через систему защиты
+network-failsafe restore
+
 ```
 
 ## Тестирование системы
@@ -121,7 +174,7 @@ network-failsafe disarm
 # Интерфейсы
 ip addr show vmwg0
 
-# Сервисы  
+# Сервисы
 systemctl status wg-quick@wg0
 systemctl status dnsmasq@vmwgnat
 
@@ -131,86 +184,3 @@ iptables -t nat -L POSTROUTING | grep 10.10.0
 # Таблица маршрутизации
 ip rule show | grep 200
 ```
-
-### Если что-то сломалось
-
-```bash
-# Проверить процессы защиты
-ps aux | grep network-failsafe
-
-# Почистить зависшие процессы
-pkill -f network-failsafe
-rm -f /tmp/network-failsafe.lock
-
-# Логи
-tail -20 /var/log/network-failsafe.log
-```
-
-## Создание ВМ
-
-В веб-интерфейсе Proxmox:
-
-1. Создать ВМ
-2. В сетевых настройках выбрать мост `vmwg0`
-3. ВМ получат IP из 10.10.0.2-254
-4. Весь трафик пойдет через WireGuard
-
-## Экстренное восстановление  
-
-### Из консоли/IPMI
-
-```bash
-# Быстрое восстановление сети
-/usr/local/bin/recover-network.sh
-
-# Через систему защиты
-network-failsafe restore
-```
-
-### Полное восстановление
-
-```bash
-# Если совсем всё плохо
-ansible-playbook cleanup-vmwg-subnet.yml
-```
-
-### Настройка переменных
-
-В `deploy-vmwg-subnet.yml` можно изменить:
-
-```yaml
-vars:
-  vm_subnet: "10.10.0.0/24"           # подсеть ВМ
-  vm_gateway: "10.10.0.1"             # шлюз  
-  vm_dhcp_range_start: "10.10.0.2"    # начало DHCP
-  vm_dhcp_range_end: "10.10.0.254"    # конец DHCP
-  routing_table_id: 200               # ID таблицы маршрутизации
-```
-
-## Структура проекта
-
-```text
-├── deploy-vmwg-subnet.yml      # основной плейбук
-├── cleanup-vmwg-subnet.yml     # удаление всего
-├── inventory.yml               # ваш конфиг (создать из .example)
-├── inventory.example.yml       # пример конфига
-├── ansible.cfg                 # настройки Ansible
-├── verify-setup.sh             # проверка готовности
-├── src/
-│   ├── network-failsafe        # скрипт защиты сети
-│   └── recover-network.sh      # аварийное восстановление
-└── templates/                  # шаблоны конфигов
-    ├── debug-vmwg0.sh.j2       # диагностика
-    ├── dnsmasq-default.conf.j2 # базовая настройка dnsmasq
-    ├── dnsmasq-vmwg0.conf.j2   # DHCP для vmwg0
-    ├── dnsmasq@.service.j2     # systemd сервис
-    ├── vmwgnat.j2              # сетевой интерфейс
-    └── wg0.conf.j2             # конфиг WireGuard
-```
-
-## Требования
-
-- Proxmox VE
-- Ansible
-- SSH доступ к Proxmox хосту
-- Данные WireGuard сервера
