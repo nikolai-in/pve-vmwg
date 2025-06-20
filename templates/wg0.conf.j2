@@ -6,8 +6,10 @@ PrivateKey = {{ wireguard_private_key }}
 Address = {{ wireguard_address }}
 Table = 32768
 # Set up routing table {{ routing_table_id }} for VM traffic when wg0 comes up
-PostUp = ip route add default dev wg0 table {{ routing_table_id }}
+PostUp = ip route add default dev wg0 scope global table {{ routing_table_id }}
+PostUp = ip route add 10.10.0.0/24 dev vmwg0 table {{ routing_table_id }}
 PostDown = ip route del default dev wg0 table {{ routing_table_id }} 2>/dev/null || true
+PostDown = ip route del 10.10.0.0/24 dev vmwg0 table {{ routing_table_id }} 2>/dev/null || true
 
 [Peer]
 PublicKey = {{ wireguard_peer_public_key }}
