@@ -1,0 +1,454 @@
+#!/bin/bash
+# Network Failsafe Manager
+# A single script to handle network failsafe operations
+# Usage: network-failsafe {arm|disarm|status|test|restore} [options]
+
+set -euo pipefail
+
+# Configuration
+CONFIG_DIR="/etc/network-failsafe"
+BACKUP_DIR="/var/backups/network-failsafe"
+LOCK_FILE="/tmp/network-failsafe.lock"
+LOG_FILE="/var/log/network-failsafe.log"
+DEFAULT_TIMEOUT=300
+
+# Ensure directories exist
+mkdir -p "$CONFIG_DIR" "$BACKUP_DIR"
+
+# Logging function
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $*" | tee -a "$LOG_FILE"
+}
+
+# Show usage
+show_usage() {
+    cat <<'EOF'
+Network Failsafe Manager - Single script for network safety
+
+Usage: network-failsafe <command> [options]
+
+Commands:
+  arm [timeout] [mode]     Arm the failsafe (default: 300s, auto mode)
+  disarm                   Disarm the failsafe
+  status                   Show current failsafe status
+  test [timeout]           Test failsafe with short timeout (default: 15s)
+  restore                  Manually trigger restoration
+  help                     Show this help
+
+Modes:
+  auto                     Auto-detect behavior based on current state
+  preserve                 Preserve current network state if failsafe triggers
+  clean                    Restore to pre-deployment clean state
+
+Examples:
+  network-failsafe arm                    # Arm with 5min timeout, auto mode
+  network-failsafe arm 600 preserve      # Arm with 10min timeout, preserve mode
+  network-failsafe test                   # Quick 15-second test
+  network-failsafe status                 # Check current status
+  network-failsafe disarm                 # Disarm active failsafe
+
+EOF
+}
+
+# Create network state snapshot
+create_snapshot() {
+    local snapshot_name="$1"
+    local snapshot_dir="$BACKUP_DIR/$snapshot_name"
+
+    log "Creating network snapshot: $snapshot_name"
+    mkdir -p "$snapshot_dir"
+
+    # Network interfaces
+    cp /etc/network/interfaces "$snapshot_dir/interfaces"
+    if [[ -d /etc/network/interfaces.d ]]; then
+        cp -r /etc/network/interfaces.d "$snapshot_dir/interfaces.d" 2>/dev/null || true
+    fi
+
+    # Firewall rules
+    iptables-save >"$snapshot_dir/iptables.rules"
+    ip6tables-save >"$snapshot_dir/ip6tables.rules"
+
+    # Routing information
+    ip route show >"$snapshot_dir/routes"
+    ip rule show >"$snapshot_dir/rules"
+
+    # Service states
+    echo "# Service states at snapshot time" >"$snapshot_dir/services"
+    for service in dnsmasq wg-quick@wg0 dnsmasq@vmwgnat; do
+        if systemctl is-enabled "$service" >/dev/null 2>&1; then
+            echo "enabled:$service" >>"$snapshot_dir/services"
+        fi
+        if systemctl is-active "$service" >/dev/null 2>&1; then
+            echo "active:$service" >>"$snapshot_dir/services"
+        fi
+    done
+
+    # Network interface states
+    ip addr show >"$snapshot_dir/interfaces.state"
+    ip link show >"$snapshot_dir/links.state"
+
+    log "Snapshot created: $snapshot_name"
+}
+
+# Restore from snapshot
+restore_snapshot() {
+    local snapshot_name="$1"
+    local snapshot_dir="$BACKUP_DIR/$snapshot_name"
+
+    if [[ ! -d "$snapshot_dir" ]]; then
+        log "ERROR: Snapshot $snapshot_name not found"
+        return 1
+    fi
+
+    log "Restoring from snapshot: $snapshot_name"
+
+    # Stop potentially conflicting services
+    for service in wg-quick@wg0 dnsmasq@vmwgnat; do
+        systemctl stop "$service" 2>/dev/null || true
+    done
+
+    # Remove interfaces that shouldn't exist in target state
+    for iface in vmwg0 dummy0; do
+        if ip link show "$iface" >/dev/null 2>&1; then
+            log "Removing interface: $iface"
+            ifdown "$iface" 2>/dev/null || true
+            ip link delete "$iface" 2>/dev/null || true
+        fi
+    done
+
+    # Restore network configuration
+    if [[ -f "$snapshot_dir/interfaces" ]]; then
+        cp "$snapshot_dir/interfaces" /etc/network/interfaces
+    fi
+
+    # Restore interfaces.d if it exists
+    rm -rf /etc/network/interfaces.d 2>/dev/null || true
+    if [[ -d "$snapshot_dir/interfaces.d" ]]; then
+        cp -r "$snapshot_dir/interfaces.d" /etc/network/interfaces.d
+    fi
+
+    # Restore firewall rules
+    if [[ -f "$snapshot_dir/iptables.rules" ]]; then
+        iptables-restore <"$snapshot_dir/iptables.rules" 2>/dev/null || true
+    fi
+    if [[ -f "$snapshot_dir/ip6tables.rules" ]]; then
+        ip6tables-restore <"$snapshot_dir/ip6tables.rules" 2>/dev/null || true
+    fi
+
+    # Clean up routing (specific to our deployment)
+    ip rule show | grep "lookup 200" | while read -r rule; do
+        ip rule del "$(echo "$rule" | cut -d: -f2-)" 2>/dev/null || true
+    done
+    ip route flush table 200 2>/dev/null || true
+
+    # Restart networking
+    systemctl restart networking 2>/dev/null || true
+
+    # Restore services based on snapshot
+    if [[ -f "$snapshot_dir/services" ]]; then
+        while IFS=: read -r state service; do
+            case "$state" in
+            enabled)
+                systemctl enable "$service" 2>/dev/null || true
+                ;;
+            active)
+                systemctl start "$service" 2>/dev/null || true
+                ;;
+            esac
+        done <"$snapshot_dir/services"
+    fi
+
+    log "Restoration complete: $snapshot_name"
+}
+
+# Detect current deployment state
+detect_state() {
+    local deployment_active=false
+
+    # Check for deployment indicators
+    if [[ -f "/etc/network/interfaces.d/vmwgnat" ]] ||
+        ip link show vmwg0 >/dev/null 2>&1 ||
+        systemctl is-active wg-quick@wg0 >/dev/null 2>&1; then
+        deployment_active=true
+    fi
+
+    if $deployment_active; then
+        echo "deployed"
+    else
+        echo "clean"
+    fi
+}
+
+# Arm the failsafe
+arm_failsafe() {
+    local timeout=${1:-$DEFAULT_TIMEOUT}
+    local mode=${2:-auto}
+
+    if [[ -f "$LOCK_FILE" ]]; then
+        echo "⚠️  Failsafe is already armed!"
+        echo "Use 'network-failsafe disarm' first or check 'network-failsafe status'"
+        return 1
+    fi
+
+    # Determine mode based on current state if auto
+    if [[ "$mode" == "auto" ]]; then
+        local current_state
+        current_state=$(detect_state)
+        if [[ "$current_state" == "deployed" ]]; then
+            mode="preserve"
+        else
+            mode="clean"
+        fi
+        log "Auto-detected mode: $mode (current state: $current_state)"
+    fi
+
+    # Create snapshots
+    create_snapshot "pre-failsafe"
+    if [[ "$mode" == "preserve" ]]; then
+        create_snapshot "target-state"
+    fi
+
+    # Create lock file with metadata
+    cat >"$LOCK_FILE" <<EOF
+mode=$mode
+timeout=$timeout
+armed_at=$(date '+%Y-%m-%d %H:%M:%S')
+target_snapshot=$([ "$mode" == "preserve" ] && echo "target-state" || echo "pre-failsafe")
+EOF
+
+    # Start background monitor
+    (
+        log "Network failsafe armed - ${timeout}s timeout (mode: $mode)"
+        sleep "$timeout"
+
+        if [[ -f "$LOCK_FILE" ]]; then
+            log "FAILSAFE TRIGGERED - Network failsafe timeout reached"
+
+            # Read configuration
+            local target_snapshot
+            target_snapshot=$(grep "target_snapshot=" "$LOCK_FILE" | cut -d= -f2)
+
+            # Remove lock file first
+            rm -f "$LOCK_FILE"
+
+            # Restore to target state
+            restore_snapshot "$target_snapshot"
+
+            log "FAILSAFE COMPLETE - Network restored to $target_snapshot state"
+            echo "NETWORK FAILSAFE ACTIVATED - Restored to $target_snapshot state" | wall 2>/dev/null || true
+        fi
+    ) &
+
+    echo "✅ Network failsafe armed"
+    echo "   Timeout: ${timeout} seconds"
+    echo "   Mode: $mode"
+    echo "   Target: $([ "$mode" == "preserve" ] && echo "preserve current state" || echo "restore to clean state")"
+    echo
+    echo "Use 'network-failsafe disarm' when changes are complete"
+}
+
+# Disarm the failsafe
+disarm_failsafe() {
+    if [[ ! -f "$LOCK_FILE" ]]; then
+        echo "ℹ️  No active failsafe found"
+        return 0
+    fi
+
+    rm -f "$LOCK_FILE"
+    log "Network failsafe disarmed manually"
+    echo "✅ Network failsafe disarmed"
+}
+
+# Show status
+show_status() {
+    echo "🔍 Network Failsafe Status"
+    echo "========================="
+
+    if [[ -f "$LOCK_FILE" ]]; then
+        echo "🔴 ARMED - Failsafe is active"
+        echo
+        echo "Configuration:"
+        cat "$LOCK_FILE" | sed 's/^/  /'
+        echo
+        echo "Time remaining: (check process list for sleep process)"
+        if pgrep -f "sleep.*network-failsafe" >/dev/null; then
+            echo "  Background process is running"
+        else
+            echo "  ⚠️  No background process found"
+        fi
+    else
+        echo "🟢 DISARMED - No active failsafe"
+    fi
+
+    echo
+    echo "Available snapshots:"
+    if [[ -d "$BACKUP_DIR" ]]; then
+        local found_snapshots=false
+        for snapshot in "$BACKUP_DIR"/*; do
+            if [[ -d "$snapshot" ]]; then
+                echo "  $(basename "$snapshot")"
+                found_snapshots=true
+            fi
+        done
+        if ! $found_snapshots; then
+            echo "  (none)"
+        fi
+    else
+        echo "  (none)"
+    fi
+
+    echo
+    echo "Current system state: $(detect_state)"
+
+    echo
+    echo "Recent activity:"
+    if [[ -f "$LOG_FILE" ]]; then
+        tail -5 "$LOG_FILE" | sed 's/^/  /'
+    else
+        echo "  (no log file)"
+    fi
+}
+
+# Test the failsafe
+test_failsafe() {
+    local timeout=${1:-15}
+
+    echo "🧪 Network Failsafe Test"
+    echo "======================="
+    echo
+
+    local current_state
+    current_state=$(detect_state)
+    echo "Current state: $current_state"
+
+    if [[ "$current_state" == "deployed" ]]; then
+        echo "Expected behavior: Preserve deployment state"
+        local test_mode="preserve"
+    else
+        echo "Expected behavior: Restore to clean state"
+        local test_mode="clean"
+    fi
+
+    echo
+    read -p "Continue with ${timeout}s test? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Test cancelled"
+        return 0
+    fi
+
+    # Clean up any existing failsafe
+    disarm_failsafe >/dev/null 2>&1 || true
+
+    echo "🚀 Starting test..."
+    arm_failsafe "$timeout" "$test_mode"
+
+    echo
+    echo "⏰ Waiting for timeout..."
+    for i in $(seq "$timeout" -1 1); do
+        printf "\r   %2d seconds remaining..." $i
+        sleep 1
+    done
+    echo
+
+    # Give restoration time to complete
+    sleep 3
+
+    echo
+    echo "🔍 Test Results:"
+    if tail -10 "$LOG_FILE" | grep -q "FAILSAFE TRIGGERED"; then
+        echo "✅ Failsafe triggered successfully"
+
+        local new_state
+        new_state=$(detect_state)
+        echo "State after failsafe: $new_state"
+
+        if [[ "$test_mode" == "preserve" && "$new_state" == "deployed" ]] ||
+            [[ "$test_mode" == "clean" && "$new_state" == "clean" ]]; then
+            echo "✅ SUCCESS: Correct state maintained/restored"
+        else
+            echo "❌ FAILED: Unexpected state after failsafe"
+        fi
+    else
+        echo "❌ FAILED: Failsafe did not trigger"
+    fi
+}
+
+# Manual restore
+manual_restore() {
+    echo "🔧 Manual Network Restore"
+    echo "========================"
+    echo
+    echo "Available snapshots:"
+    if [[ -d "$BACKUP_DIR" ]]; then
+        local found_any=false
+        for snapshot in "$BACKUP_DIR"/*; do
+            if [[ -d "$snapshot" ]]; then
+                echo "  $(basename "$snapshot")"
+                found_any=true
+            fi
+        done
+        if ! $found_any; then
+            echo "  (none)"
+        fi
+    else
+        echo "  (none)"
+    fi
+    echo
+    read -p "Enter snapshot name to restore (or 'cancel'): " snapshot_name
+
+    if [[ "$snapshot_name" == "cancel" || -z "$snapshot_name" ]]; then
+        echo "Restore cancelled"
+        return 0
+    fi
+
+    if [[ ! -d "$BACKUP_DIR/$snapshot_name" ]]; then
+        echo "❌ Snapshot '$snapshot_name' not found"
+        return 1
+    fi
+
+    echo
+    echo "⚠️  This will restore network configuration to snapshot: $snapshot_name"
+    read -p "Are you sure? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Restore cancelled"
+        return 0
+    fi
+
+    restore_snapshot "$snapshot_name"
+    echo "✅ Manual restore complete"
+}
+
+# Main command dispatcher
+main() {
+    case "${1:-help}" in
+    arm)
+        arm_failsafe "${2:-}" "${3:-}"
+        ;;
+    disarm)
+        disarm_failsafe
+        ;;
+    status)
+        show_status
+        ;;
+    test)
+        test_failsafe "${2:-}"
+        ;;
+    restore)
+        manual_restore
+        ;;
+    help | --help | -h)
+        show_usage
+        ;;
+    *)
+        echo "❌ Unknown command: ${1:-}"
+        echo
+        show_usage
+        exit 1
+        ;;
+    esac
+}
+
+# Run main function with all arguments
+main "$@"

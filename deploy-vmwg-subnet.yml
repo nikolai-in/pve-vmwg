@@ -22,13 +22,16 @@
 
     - name: Deploy simple network failsafe script
       ansible.builtin.copy:
-        src: src/network-failsafe.sh
-        dest: /usr/local/bin/network-failsafe.sh
+        src: src/network-failsafe
+        dest: /usr/local/bin/network-failsafe
         mode: "0755"
 
-    - name: Deploy failsafe disarm script
+    - name: Deploy failsafe disarm script (legacy compatibility)
       ansible.builtin.copy:
-        src: src/disarm-failsafe.sh
+        content: |
+          #!/bin/bash
+          # Legacy compatibility wrapper
+          exec /usr/local/bin/network-failsafe disarm "$@"
         dest: /usr/local/bin/disarm-failsafe.sh
         mode: "0755"
 
@@ -38,23 +41,8 @@
         dest: /usr/local/bin/recover-network.sh
         mode: "0755"
 
-    - name: Deploy failsafe test scripts
-      ansible.builtin.copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
-        mode: "0755"
-      loop:
-        - src: src/test-failsafe.sh
-          dest: /usr/local/bin/test-failsafe.sh
-        - src: src/quick-test-failsafe.sh
-          dest: /usr/local/bin/quick-test-failsafe.sh
-        - src: src/verify-failsafe.sh
-          dest: /usr/local/bin/verify-failsafe.sh
-        - src: src/cleanup-failsafe.sh
-          dest: /usr/local/bin/cleanup-failsafe.sh
-
     - name: Arm network failsafe (5 minute timeout)
-      ansible.builtin.command: /usr/local/bin/network-failsafe.sh 300
+      ansible.builtin.command: /usr/local/bin/network-failsafe arm 300
       register: failsafe_result
       changed_when: true
 
@@ -62,9 +50,13 @@
       ansible.builtin.debug:
         msg: |
           🔒 NETWORK FAILSAFE ARMED 🔒
-          Timeout: 5 minutes
+          Timeout: 5 minutes (300 seconds)
           The system will auto-restore network config if deployment fails.
-          Lock file: /tmp/network-failsafe.lock
+
+          Commands:
+          - Status: network-failsafe status
+          - Disarm: network-failsafe disarm
+          - Test: network-failsafe test
 
     - name: Disable default dnsmasq service (per Proxmox docs)
       ansible.builtin.systemd:
@@ -252,7 +244,7 @@
         - Reload systemd
 
     - name: Disarm network failsafe (deployment successful)
-      ansible.builtin.command: /usr/local/bin/disarm-failsafe.sh
+      ansible.builtin.command: /usr/local/bin/network-failsafe disarm
       register: failsafe_disarm_result
       changed_when: true
       when: not ansible_check_mode
@@ -264,13 +256,12 @@
           Network failsafe has been disarmed.
           VM subnet {{ vm_subnet }} is now active with WireGuard VPN routing.
 
-          🛠️  Available scripts:
-          - /usr/local/bin/recover-network.sh (emergency network recovery)
-          - /usr/local/bin/quick-test-failsafe.sh (test failsafe system)
-          - /usr/local/bin/test-failsafe.sh (comprehensive failsafe tests)
-          - /root/debug-vmwg0.sh (network troubleshooting)
-
-          📋 To test failsafe: /usr/local/bin/quick-test-failsafe.sh
+          🛠️  Available commands:
+          - network-failsafe status     (check failsafe status)
+          - network-failsafe test       (test failsafe system)
+          - network-failsafe arm        (manual failsafe)
+          - /usr/local/bin/recover-network.sh (emergency recovery)
+          - /root/debug-vmwg0.sh        (network troubleshooting)
 
   handlers:
     - name: Restart wireguard

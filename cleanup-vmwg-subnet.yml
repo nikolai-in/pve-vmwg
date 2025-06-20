@@ -8,7 +8,7 @@
 
   tasks:
     - name: Disarm network failsafe if active
-      ansible.builtin.command: /usr/local/bin/disarm-failsafe.sh
+      ansible.builtin.command: /usr/local/bin/network-failsafe disarm
       register: failsafe_disarm_result
       failed_when: false
       changed_when: failsafe_disarm_result.rc == 0
@@ -169,9 +169,10 @@
         - /etc/systemd/system/wg-quick@wg0.service.d
         - /root/debug-vmwg0.sh
         - /root/fix-vm-connectivity.sh
-        - /usr/local/bin/network-failsafe.sh
+        - /usr/local/bin/network-failsafe
         - /usr/local/bin/disarm-failsafe.sh
         - /var/backups/network-failsafe
+        - /etc/network-failsafe
         - /tmp/network-failsafe.lock
 
     - name: Remove vmwg0 bridge from main Proxmox interfaces file
