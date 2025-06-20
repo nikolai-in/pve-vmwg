@@ -11,6 +11,8 @@
     vm_bridge_interface: "vmwg0"
     dhcp_lease_time: "12h"
     mtu_size: 1380
+    vpn_table_id: 200
+    wireguard_endpoint: "your_wireguard_endpoint_here" # <-- Add your WireGuard endpoint here
 
   tasks:
     - name: Install required packages
@@ -85,35 +87,47 @@
         state: present
         reload: true
 
-    - name: Enable WireGuard service
-      ansible.builtin.systemd:
-        name: wg-quick@wg0
-        enabled: true
-        state: started
-
-    - name: Start and enable dnsmasq
-      ansible.builtin.systemd:
-        name: dnsmasq
-        enabled: true
-        state: started
-
-    - name: Check if vmwg0 interface is up
-      ansible.builtin.command: ip link show vmwg0
-      register: vmwg0_status
+    - name: Check DNS resolution for WireGuard endpoint
+      ansible.builtin.command: nslookup {{ wireguard_endpoint.split(':')[0] }}
+      register: dns_check
       failed_when: false
       changed_when: false
 
-    - name: Bring up vmwg0 interface
-      ansible.builtin.command: ifup vmwg0
-      when: vmwg0_status.rc != 0 or 'state UP' not in vmwg0_status.stdout
-      register: ifup_result
-      changed_when: ifup_result.rc == 0
+    - name: Display DNS resolution status
+      ansible.builtin.debug:
+        msg: "DNS resolution {{ 'successful' if dns_check.rc == 0 else 'failed' }} for {{ wireguard_endpoint.split(':')[0] }}"
+
+    - name: Enable WireGuard service (without starting)
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        enabled: true
+        state: stopped
+
+    - name: Start WireGuard service with retry
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        state: started
+      register: wg_start_result
+      retries: 3
+      delay: 10
+      until: wg_start_result is succeeded
+      when: dns_check.rc == 0
+
+    - name: Warning if WireGuard couldn't start due to DNS
+      ansible.builtin.debug:
+        msg: "WARNING: WireGuard service not started due to DNS resolution failure. Start manually after DNS is working: systemctl start wg-quick@wg0"
+      when: dns_check.rc != 0
 
   handlers:
     - name: Restart wireguard
       ansible.builtin.systemd:
         name: wg-quick@wg0
         state: restarted
+      register: wg_restart_result
+      retries: 2
+      delay: 5
+      until: wg_restart_result is succeeded
+      failed_when: false
 
     - name: Restart dnsmasq
       ansible.builtin.systemd:

@@ -5,13 +5,19 @@ This Ansible playbook deploys a network configuration for Proxmox VMs that route
 ## Architecture
 
 ```
-Internet ← vmbr0 ← Proxmox Host (direct connection)
-Internet ← wg0 ← Proxmox Host ← vmwg0 ← VM Subnet (10.10.0.0/24)
+Internet ← vmbr0 ← Proxmox Host (direct connection, main routing table)
+Internet ← wg0 ← Proxmox Host ← vmwg0 ← VM Subnet (10.10.0.0/24, table 200)
 ```
 
-- **Proxmox host**: Uses direct internet connection via vmbr0
-- **VMs**: All traffic routed through WireGuard tunnel (wg0)
-- **Clean separation**: Host and VM traffic use different paths
+- **Proxmox host**: Uses direct internet connection via vmbr0 (main routing table)
+- **VMs**: All traffic routed through WireGuard tunnel using policy-based routing (table 200)
+- **Clean separation**: Host and VM traffic use different routing tables for reliability
+
+## Key Features
+
+- **Host connectivity preserved**: WireGuard issues don't affect host access
+- **Policy-based routing**: VM traffic uses table 200, host uses main table
+- **Automatic failover**: Host remains accessible even if VPN is down
 
 ## Files Structure
 
@@ -68,6 +74,14 @@ Key variables in the playbook (customize as needed):
 - `wireguard_interface`: WG interface name (default: wg0)
 - `vm_bridge_interface`: VM bridge name (default: vmwg0)
 - `mtu_size`: MTU for compatibility (default: 1380)
+- `vpn_table_id`: Routing table for VPN traffic (default: 200)
+
+## Troubleshooting
+
+- **Check routing tables**: `ip route show table 200`
+- **Check policy rules**: `ip rule show`
+- **Test VM connectivity**: VMs should route through VPN even if host VPN is down
+- **Host connectivity**: Always preserved via main routing table
 
 ## Security Notes
 
