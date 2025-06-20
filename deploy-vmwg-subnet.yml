@@ -112,7 +112,6 @@
 
     - name: Save iptables rules
       ansible.builtin.shell: |
-        set -o pipefail
         iptables-save > /etc/iptables/rules.v4
         ip6tables-save > /etc/iptables/rules.v6
         echo "Rules saved"
@@ -145,7 +144,6 @@
 
     - name: Reload networking
       ansible.builtin.shell: |
-        set -o pipefail
         # Check if vmwg0 interface exists before trying to reload
         if ip link show vmwg0 >/dev/null 2>&1; then
           echo "Interface exists, bringing down"
