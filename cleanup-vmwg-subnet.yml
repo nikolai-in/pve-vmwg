@@ -7,6 +7,12 @@
     routing_table_id: 200
 
   tasks:
+    - name: Disarm network failsafe if active
+      ansible.builtin.command: /usr/local/bin/disarm-failsafe.sh
+      register: failsafe_disarm_result
+      failed_when: false
+      changed_when: failsafe_disarm_result.rc == 0
+
     - name: Stop WireGuard service
       ansible.builtin.systemd:
         name: wg-quick@wg0
@@ -163,6 +169,10 @@
         - /etc/systemd/system/wg-quick@wg0.service.d
         - /root/debug-vmwg0.sh
         - /root/fix-vm-connectivity.sh
+        - /usr/local/bin/network-failsafe.sh
+        - /usr/local/bin/disarm-failsafe.sh
+        - /var/backups/network-failsafe
+        - /tmp/network-failsafe.lock
 
     - name: Remove vmwg0 bridge from main Proxmox interfaces file
       ansible.builtin.blockinfile:
