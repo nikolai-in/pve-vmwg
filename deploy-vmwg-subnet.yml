@@ -104,11 +104,23 @@
         state: present
         reload: true
 
+    - name: Check if iptables persistent directory exists
+      ansible.builtin.stat:
+        path: /etc/iptables
+      register: iptables_dir
+      when: ansible_facts['os_family'] == "Debian"
+
     - name: Save iptables rules
       ansible.builtin.shell: |
+        set -o pipefail
         iptables-save > /etc/iptables/rules.v4
         ip6tables-save > /etc/iptables/rules.v6
-      when: ansible_facts['os_family'] == "Debian"
+        echo "Rules saved"
+      register: iptables_save_result
+      when:
+        - ansible_facts['os_family'] == "Debian"
+        - iptables_dir.stat.exists
+      changed_when: "'Rules saved' in iptables_save_result.stdout"
 
     - name: Create debug script
       ansible.builtin.template:
@@ -117,24 +129,30 @@
         mode: "0755"
 
   handlers:
-    - name: restart wireguard
+    - name: Restart wireguard
       ansible.builtin.systemd:
         name: wg-quick@wg0
         state: restarted
 
-    - name: restart dnsmasq
+    - name: Restart dnsmasq
       ansible.builtin.systemd:
         name: dnsmasq@vmwgnat
         state: restarted
 
-    - name: reload systemd
+    - name: Reload systemd
       ansible.builtin.systemd:
         daemon_reload: true
 
-    - name: reload networking
+    - name: Reload networking
       ansible.builtin.shell: |
-        # Bring down the interface first to clean up
-        ifdown vmwg0 2>/dev/null || true
+        set -o pipefail
+        # Check if vmwg0 interface exists before trying to reload
+        if ip link show vmwg0 >/dev/null 2>&1; then
+          echo "Interface exists, bringing down"
+          ifdown vmwg0 2>/dev/null || true
+        fi
         # Bring it back up
-        ifup vmwg0
-      ignore_errors: true
+        ifup vmwg0 && echo "Interface reloaded"
+      register: networking_reload_result
+      failed_when: networking_reload_result.rc != 0 and "does not exist" not in networking_reload_result.stderr
+      changed_when: "'Interface reloaded' in networking_reload_result.stdout"
