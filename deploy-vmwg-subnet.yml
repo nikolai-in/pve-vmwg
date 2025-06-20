@@ -165,7 +165,7 @@
         dest: /etc/systemd/system/wg-quick@wg0.service.d/override.conf
         mode: "0644"
       notify:
-        - reload systemd
+        - Reload systemd
 
   handlers:
     - name: Restart wireguard
