@@ -1,59 +1,59 @@
 ---
 - name: Clean up VM Subnet with WireGuard VPN Routing
   hosts: proxmox_hosts
-  become: yes
+  become: true
   vars:
     vm_subnet: "10.10.0.0/24"
     routing_table_id: 200
 
   tasks:
     - name: Stop services
-      systemd:
+      ansible.builtin.systemd:
         name: "{{ item }}"
         state: stopped
-        enabled: no
-      ignore_errors: yes
+        enabled: false
+      ignore_errors: true
       loop:
         - wg-quick@wg0
         - dnsmasq@vmwgnat
 
     - name: Bring down vmwg0 interface
-      command: ifdown vmwg0
-      ignore_errors: yes
+      ansible.builtin.command: ifdown vmwg0
+      ignore_errors: true
 
     - name: Clean up NAT rules
-      iptables:
+      ansible.builtin.iptables:
         table: nat
         chain: POSTROUTING
         source: "{{ vm_subnet }}"
         out_interface: wg0
         jump: MASQUERADE
         state: absent
-      ignore_errors: yes
+      ignore_errors: true
 
     - name: Clean up CT rules
-      iptables:
+      ansible.builtin.iptables:
         table: raw
         chain: PREROUTING
         in_interface: fwbr+
         jump: CT
         ctzone: 1
         state: absent
-      ignore_errors: yes
+      ignore_errors: true
 
     - name: Clean up policy routing rules
-      shell: |
+      ansible.builtin.shell: |
         ip rule del from {{ vm_subnet }} table {{ routing_table_id }} 2>/dev/null || true
         ip rule del to {{ vm_subnet }} table {{ routing_table_id }} 2>/dev/null || true
-      ignore_errors: yes
+      ignore_errors: true
 
     - name: Clean up routing table
-      shell: |
+      ansible.builtin.shell: |
         ip route flush table {{ routing_table_id }} 2>/dev/null || true
-      ignore_errors: yes
+      ignore_errors: true
 
     - name: Remove configuration files
-      file:
+      ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
@@ -64,16 +64,16 @@
         - /root/debug-vmwg0.sh
 
     - name: Reload systemd
-      systemd:
-        daemon_reload: yes
+      ansible.builtin.systemd:
+        daemon_reload: true
 
     - name: Save clean iptables rules
-      shell: |
+      ansible.builtin.shell: |
         iptables-save > /etc/iptables/rules.v4
         ip6tables-save > /etc/iptables/rules.v6
       when: ansible_facts['os_family'] == "Debian"
 
     - name: Restart networking
-      systemd:
+      ansible.builtin.systemd:
         name: networking
         state: restarted

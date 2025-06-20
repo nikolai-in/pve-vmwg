@@ -1,7 +1,7 @@
 ---
 - name: Configure Proxmox VM Subnet with WireGuard VPN Routing
   hosts: proxmox_hosts
-  become: yes
+  become: true
   vars:
     vm_subnet: "10.10.0.0/24"
     vm_gateway: "10.10.0.1"
@@ -11,130 +11,130 @@
 
   tasks:
     - name: Install required packages
-      apt:
+      ansible.builtin.apt:
         name:
           - wireguard
           - wireguard-tools
           - dnsmasq
           - iptables-persistent
         state: present
-        update_cache: yes
+        update_cache: true
 
     - name: Create WireGuard configuration directory
-      file:
+      ansible.builtin.file:
         path: /etc/wireguard
         state: directory
         mode: "0700"
 
     - name: Deploy WireGuard configuration
-      template:
+      ansible.builtin.template:
         src: templates/wg0.conf.j2
         dest: /etc/wireguard/wg0.conf
         mode: "0600"
-        backup: yes
+        backup: true
       notify:
         - restart wireguard
 
     - name: Create dnsmasq configuration directory
-      file:
+      ansible.builtin.file:
         path: /etc/dnsmasq.d/vmwgnat
         state: directory
         mode: "0755"
 
     - name: Deploy dnsmasq default configuration
-      template:
+      ansible.builtin.template:
         src: templates/dnsmasq-default.conf.j2
         dest: /etc/dnsmasq.d/vmwgnat/00-default.conf
         mode: "0644"
-        backup: yes
+        backup: true
       notify:
         - restart dnsmasq
 
     - name: Deploy dnsmasq vmwg0 interface configuration
-      template:
+      ansible.builtin.template:
         src: templates/dnsmasq-vmwg0.conf.j2
         dest: /etc/dnsmasq.d/vmwgnat/10-vmwg0.conf
         mode: "0644"
-        backup: yes
+        backup: true
       notify:
         - restart dnsmasq
 
     - name: Create dnsmasq ethers file
-      file:
+      ansible.builtin.file:
         path: /etc/dnsmasq.d/vmwgnat/ethers
         state: touch
         mode: "0644"
 
     - name: Deploy dnsmasq systemd service template
-      template:
+      ansible.builtin.template:
         src: templates/dnsmasq@.service.j2
         dest: /etc/systemd/system/dnsmasq@.service
         mode: "0644"
-        backup: yes
+        backup: true
       notify:
         - reload systemd
 
     - name: Deploy network interface configuration
-      template:
+      ansible.builtin.template:
         src: templates/vmwgnat.j2
         dest: /etc/network/interfaces.d/vmwgnat
         mode: "0644"
-        backup: yes
+        backup: true
       notify:
         - reload networking
 
     - name: Enable and start WireGuard service
-      systemd:
+      ansible.builtin.systemd:
         name: wg-quick@wg0
-        enabled: yes
+        enabled: true
         state: started
-        daemon_reload: yes
+        daemon_reload: true
 
     - name: Enable and start dnsmasq service for vmwgnat
-      systemd:
+      ansible.builtin.systemd:
         name: dnsmasq@vmwgnat
-        enabled: yes
+        enabled: true
         state: started
-        daemon_reload: yes
+        daemon_reload: true
 
     - name: Ensure IP forwarding is enabled
-      sysctl:
+      ansible.posix.sysctl:
         name: net.ipv4.ip_forward
         value: "1"
         state: present
-        reload: yes
+        reload: true
 
     - name: Save iptables rules
-      shell: |
+      ansible.builtin.shell: |
         iptables-save > /etc/iptables/rules.v4
         ip6tables-save > /etc/iptables/rules.v6
       when: ansible_facts['os_family'] == "Debian"
 
     - name: Create debug script
-      template:
+      ansible.builtin.template:
         src: templates/debug-vmwg0.sh.j2
         dest: /root/debug-vmwg0.sh
         mode: "0755"
 
   handlers:
     - name: restart wireguard
-      systemd:
+      ansible.builtin.systemd:
         name: wg-quick@wg0
         state: restarted
 
     - name: restart dnsmasq
-      systemd:
+      ansible.builtin.systemd:
         name: dnsmasq@vmwgnat
         state: restarted
 
     - name: reload systemd
-      systemd:
-        daemon_reload: yes
+      ansible.builtin.systemd:
+        daemon_reload: true
 
     - name: reload networking
-      shell: |
+      ansible.builtin.shell: |
         # Bring down the interface first to clean up
         ifdown vmwg0 2>/dev/null || true
         # Bring it back up
         ifup vmwg0
-      ignore_errors: yes
+      ignore_errors: true
