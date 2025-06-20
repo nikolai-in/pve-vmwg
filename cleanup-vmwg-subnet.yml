@@ -63,6 +63,37 @@
       failed_when: false
       changed_when: ct_cleanup_result.rc == 0
 
+    - name: Check and clean up FORWARD rules (vmwg0 -> wg0)
+      ansible.builtin.command: iptables -C FORWARD -i vmwg0 -o wg0 -j ACCEPT
+      register: forward_rule_check1
+      failed_when: false
+      changed_when: false
+
+    - name: Remove FORWARD rule (vmwg0 -> wg0)
+      ansible.builtin.iptables:
+        chain: FORWARD
+        in_interface: vmwg0
+        out_interface: wg0
+        jump: ACCEPT
+        state: absent
+      when: forward_rule_check1.rc == 0
+
+    - name: Check and clean up FORWARD rules (wg0 -> vmwg0)
+      ansible.builtin.command: iptables -C FORWARD -i wg0 -o vmwg0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+      register: forward_rule_check2
+      failed_when: false
+      changed_when: false
+
+    - name: Remove FORWARD rule (wg0 -> vmwg0)
+      ansible.builtin.iptables:
+        chain: FORWARD
+        in_interface: wg0
+        out_interface: vmwg0
+        ctstate: RELATED,ESTABLISHED
+        jump: ACCEPT
+        state: absent
+      when: forward_rule_check2.rc == 0
+
     - name: Check existing policy routing rules
       ansible.builtin.shell: |
         set -o pipefail
@@ -120,7 +151,16 @@
         - /etc/network/interfaces.d/vmwgnat
         - /etc/dnsmasq.d/vmwgnat
         - /etc/systemd/system/dnsmasq@.service
+        - /etc/systemd/system/wg-quick@wg0.service.d
         - /root/debug-vmwg0.sh
+        - /root/fix-vm-connectivity.sh
+
+    - name: Remove vmwg0 bridge from main Proxmox interfaces file
+      ansible.builtin.blockinfile:
+        path: /etc/network/interfaces
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - vmwg0"
+        state: absent
+        backup: true
 
     - name: Reload systemd
       ansible.builtin.systemd:

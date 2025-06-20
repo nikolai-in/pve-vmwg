@@ -15,6 +15,9 @@ post-up ip rule add from {{ vm_subnet }} table {{ routing_table_id }} priority 1
 post-down ip rule del from {{ vm_subnet }} table {{ routing_table_id }} priority 100 2>/dev/null || true
 post-up ip rule add to {{ vm_subnet }} table {{ routing_table_id }} priority 101
 post-down ip rule del to {{ vm_subnet }} table {{ routing_table_id }} priority 101 2>/dev/null || true
+# Add local subnet route to routing table {{ routing_table_id }}
+post-up ip route add {{ vm_subnet }} dev vmwg0 table {{ routing_table_id }} 2>/dev/null || true
+post-down ip route del {{ vm_subnet }} dev vmwg0 table {{ routing_table_id }} 2>/dev/null || true
 bridge_ports none
 bridge_stp off
 bridge_fd 0

@@ -147,6 +147,26 @@
       notify:
         - Reload proxmox services
 
+    - name: Create systemd override directory for WireGuard
+      ansible.builtin.file:
+        path: /etc/systemd/system/wg-quick@wg0.service.d
+        state: directory
+        mode: "0755"
+
+    - name: Create WireGuard service override for network dependency
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          After=network-online.target
+          Wants=network-online.target
+          # Ensure vmwg0 interface is up before starting WireGuard
+          After=network.target
+          Requires=network.target
+        dest: /etc/systemd/system/wg-quick@wg0.service.d/override.conf
+        mode: "0644"
+      notify:
+        - reload systemd
+
   handlers:
     - name: Restart wireguard
       ansible.builtin.systemd:
