@@ -33,7 +33,7 @@
         mode: "0600"
         backup: true
       notify:
-        - restart wireguard
+        - Restart wireguard
 
     - name: Create dnsmasq configuration directory
       ansible.builtin.file:
@@ -48,7 +48,7 @@
         mode: "0644"
         backup: true
       notify:
-        - restart dnsmasq
+        - Restart dnsmasq
 
     - name: Deploy dnsmasq vmwg0 interface configuration
       ansible.builtin.template:
@@ -57,7 +57,7 @@
         mode: "0644"
         backup: true
       notify:
-        - restart dnsmasq
+        - Restart dnsmasq
 
     - name: Create dnsmasq ethers file
       ansible.builtin.file:
@@ -72,7 +72,7 @@
         mode: "0644"
         backup: true
       notify:
-        - reload systemd
+        - Reload systemd
 
     - name: Deploy network interface configuration
       ansible.builtin.template:
@@ -81,7 +81,7 @@
         mode: "0644"
         backup: true
       notify:
-        - reload networking
+        - Reload networking
 
     - name: Enable and start WireGuard service
       ansible.builtin.systemd:
