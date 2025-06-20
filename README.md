@@ -45,8 +45,7 @@ Ansible-скрипты для создания подсети ВМ на Proxmox.
 ├── ansible.cfg                 # настройки Ansible
 ├── verify-setup.sh             # проверка готовности
 ├── src/
-│   ├── network-failsafe        # скрипт защиты сети
-│   └── recover-network.sh      # аварийное восстановление
+│   └── network-failsafe        # скрипт защиты сети
 └── templates/                  # шаблоны конфигов
     ├── debug-vmwg0.sh.j2       # диагностика
     ├── dnsmasq-default.conf.j2 # базовая настройка dnsmasq
@@ -135,7 +134,6 @@ tail -20 /var/log/network-failsafe.log
 
 # Восстановление сети через систему защиты
 network-failsafe restore
-
 ```
 
 ## Тестирование системы

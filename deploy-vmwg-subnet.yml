@@ -35,12 +35,6 @@
         dest: /usr/local/bin/disarm-failsafe.sh
         mode: "0755"
 
-    - name: Deploy network recovery script
-      ansible.builtin.copy:
-        src: src/recover-network.sh
-        dest: /usr/local/bin/recover-network.sh
-        mode: "0755"
-
     - name: Arm network failsafe (5 minute timeout)
       ansible.builtin.command: /usr/local/bin/network-failsafe arm 300
       register: failsafe_result
@@ -260,7 +254,6 @@
           - network-failsafe status     (check failsafe status)
           - network-failsafe test       (test failsafe system)
           - network-failsafe arm        (manual failsafe)
-          - /usr/local/bin/recover-network.sh (emergency recovery)
           - /root/debug-vmwg0.sh        (network troubleshooting)
 
   handlers:
