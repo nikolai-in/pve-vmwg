@@ -1,0 +1,454 @@
+#!/bin/bash
+# Менеджер сетевого резервирования
+# Единый скрипт для управления операциями сетевого резервирования
+# Использование: network-failsafe {arm|disarm|status|test|restore} [опции]
+
+set -euo pipefail
+
+# Конфигурация
+CONFIG_DIR="/etc/network-failsafe"
+BACKUP_DIR="/var/backups/network-failsafe"
+LOCK_FILE="/tmp/network-failsafe.lock"
+LOG_FILE="/var/log/network-failsafe.log"
+DEFAULT_TIMEOUT=300
+
+# Убеждаемся, что директории существуют
+mkdir -p "$CONFIG_DIR" "$BACKUP_DIR"
+
+# Функция логирования
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $*" | tee -a "$LOG_FILE"
+}
+
+# Показать справку
+show_usage() {
+    cat <<'EOF'
+Менеджер сетевого резервирования - Единый скрипт для сетевой безопасности
+
+Использование: network-failsafe <команда> [опции]
+
+Команды:
+  arm [таймаут] [режим]    Активировать резервирование (по умолчанию: 300с, авто режим)
+  disarm                   Отключить резервирование
+  status                   Показать текущий статус резервирования
+  test [таймаут]           Протестировать резервирование с коротким таймаутом (по умолчанию: 15с)
+  restore                  Вручную запустить восстановление
+  help                     Показать эту справку
+
+Режимы:
+  auto                     Автоопределение поведения на основе текущего состояния
+  preserve                 Сохранить текущее состояние сети при срабатывании резервирования
+  clean                    Восстановить до чистого состояния до развертывания
+
+Примеры:
+  network-failsafe arm                    # Активировать с 5мин таймаутом, авто режим
+  network-failsafe arm 600 preserve       # Активировать с 10мин таймаутом, режим сохранения
+  network-failsafe test                   # Быстрый 15-секундный тест
+  network-failsafe status                 # Проверить текущий статус
+  network-failsafe disarm                 # Отключить активное резервирование
+
+EOF
+}
+
+# Создать снимок состояния сети
+create_snapshot() {
+    local snapshot_name="$1"
+    local snapshot_dir="$BACKUP_DIR/$snapshot_name"
+
+    log "Создание снимка сети: $snapshot_name"
+    mkdir -p "$snapshot_dir"
+
+    # Сетевые интерфейсы
+    cp /etc/network/interfaces "$snapshot_dir/interfaces"
+    if [[ -d /etc/network/interfaces.d ]]; then
+        cp -r /etc/network/interfaces.d "$snapshot_dir/interfaces.d" 2>/dev/null || true
+    fi
+
+    # Правила файрвола
+    iptables-save >"$snapshot_dir/iptables.rules"
+    ip6tables-save >"$snapshot_dir/ip6tables.rules"
+
+    # Информация о маршрутизации
+    ip route show >"$snapshot_dir/routes"
+    ip rule show >"$snapshot_dir/rules"
+
+    # Состояния служб
+    echo "# Состояния служб на момент создания снимка" >"$snapshot_dir/services"
+    for service in dnsmasq wg-quick@wg0 dnsmasq@vmwgnat; do
+        if systemctl is-enabled "$service" >/dev/null 2>&1; then
+            echo "enabled:$service" >>"$snapshot_dir/services"
+        fi
+        if systemctl is-active "$service" >/dev/null 2>&1; then
+            echo "active:$service" >>"$snapshot_dir/services"
+        fi
+    done
+
+    # Состояния сетевых интерфейсов
+    ip addr show >"$snapshot_dir/interfaces.state"
+    ip link show >"$snapshot_dir/links.state"
+
+    log "Снимок создан: $snapshot_name"
+}
+
+# Восстановить из снимка
+restore_snapshot() {
+    local snapshot_name="$1"
+    local snapshot_dir="$BACKUP_DIR/$snapshot_name"
+
+    if [[ ! -d "$snapshot_dir" ]]; then
+        log "ОШИБКА: Снимок $snapshot_name не найден"
+        return 1
+    fi
+
+    log "Восстановление из снимка: $snapshot_name"
+
+    # Остановить потенциально конфликтующие службы
+    for service in wg-quick@wg0 dnsmasq@vmwgnat; do
+        systemctl stop "$service" 2>/dev/null || true
+    done
+
+    # Удалить интерфейсы, которые не должны существовать в целевом состоянии
+    for iface in vmwg0 dummy0; do
+        if ip link show "$iface" >/dev/null 2>&1; then
+            log "Удаление интерфейса: $iface"
+            ifdown "$iface" 2>/dev/null || true
+            ip link delete "$iface" 2>/dev/null || true
+        fi
+    done
+
+    # Восстановить конфигурацию сети
+    if [[ -f "$snapshot_dir/interfaces" ]]; then
+        cp "$snapshot_dir/interfaces" /etc/network/interfaces
+    fi
+
+    # Восстановить interfaces.d если существует
+    rm -rf /etc/network/interfaces.d 2>/dev/null || true
+    if [[ -d "$snapshot_dir/interfaces.d" ]]; then
+        cp -r "$snapshot_dir/interfaces.d" /etc/network/interfaces.d
+    fi
+
+    # Восстановить правила файрвола
+    if [[ -f "$snapshot_dir/iptables.rules" ]]; then
+        iptables-restore <"$snapshot_dir/iptables.rules" 2>/dev/null || true
+    fi
+    if [[ -f "$snapshot_dir/ip6tables.rules" ]]; then
+        ip6tables-restore <"$snapshot_dir/ip6tables.rules" 2>/dev/null || true
+    fi
+
+    # Очистить маршрутизацию (специфично для нашего развертывания)
+    ip rule show | grep "lookup 200" | while read -r rule; do
+        ip rule del "$(echo "$rule" | cut -d: -f2-)" 2>/dev/null || true
+    done
+    ip route flush table 200 2>/dev/null || true
+
+    # Перезапустить сеть
+    systemctl restart networking 2>/dev/null || true
+
+    # Восстановить службы на основе снимка
+    if [[ -f "$snapshot_dir/services" ]]; then
+        while IFS=: read -r state service; do
+            case "$state" in
+            enabled)
+                systemctl enable "$service" 2>/dev/null || true
+                ;;
+            active)
+                systemctl start "$service" 2>/dev/null || true
+                ;;
+            esac
+        done <"$snapshot_dir/services"
+    fi
+
+    log "Восстановление завершено: $snapshot_name"
+}
+
+# Определить текущее состояние развертывания
+detect_state() {
+    local deployment_active=false
+
+    # Проверить индикаторы развертывания
+    if [[ -f "/etc/network/interfaces.d/vmwgnat" ]] ||
+        ip link show vmwg0 >/dev/null 2>&1 ||
+        systemctl is-active wg-quick@wg0 >/dev/null 2>&1; then
+        deployment_active=true
+    fi
+
+    if $deployment_active; then
+        echo "развернуто"
+    else
+        echo "чисто"
+    fi
+}
+
+# Активировать резервирование
+arm_failsafe() {
+    local timeout=${1:-$DEFAULT_TIMEOUT}
+    local mode=${2:-auto}
+
+    if [[ -f "$LOCK_FILE" ]]; then
+        echo "⚠️  Резервирование уже активировано!"
+        echo "Используйте 'network-failsafe disarm' сначала или проверьте 'network-failsafe status'"
+        return 1
+    fi
+
+    # Определить режим на основе текущего состояния если авто
+    if [[ "$mode" == "auto" ]]; then
+        local current_state
+        current_state=$(detect_state)
+        if [[ "$current_state" == "развернуто" ]]; then
+            mode="preserve"
+        else
+            mode="clean"
+        fi
+        log "Авто-определенный режим: $mode (текущее состояние: $current_state)"
+    fi
+
+    # Создать снимки
+    create_snapshot "pre-failsafe"
+    if [[ "$mode" == "preserve" ]]; then
+        create_snapshot "target-state"
+    fi
+
+    # Создать lock файл с метаданными
+    cat >"$LOCK_FILE" <<EOF
+mode=$mode
+timeout=$timeout
+armed_at=$(date '+%Y-%m-%d %H:%M:%S')
+target_snapshot=$([ "$mode" == "preserve" ] && echo "target-state" || echo "pre-failsafe")
+EOF
+
+    # Запустить фоновый монитор
+    (
+        log "Сетевое резервирование активировано - ${timeout}с таймаут (режим: $mode)"
+        sleep "$timeout"
+
+        if [[ -f "$LOCK_FILE" ]]; then
+            log "РЕЗЕРВИРОВАНИЕ СРАБОТАЛО - Достигнут таймаут сетевого резервирования"
+
+            # Прочитать конфигурацию
+            local target_snapshot
+            target_snapshot=$(grep "target_snapshot=" "$LOCK_FILE" | cut -d= -f2)
+
+            # Сначала удалить lock файл
+            rm -f "$LOCK_FILE"
+
+            # Восстановить до целевого состояния
+            restore_snapshot "$target_snapshot"
+
+            log "РЕЗЕРВИРОВАНИЕ ЗАВЕРШЕНО - Сеть восстановлена до состояния $target_snapshot"
+            echo "АКТИВИРОВАНО СЕТЕВОЕ РЕЗЕРВИРОВАНИЕ - Восстановлено до состояния $target_snapshot" | wall 2>/dev/null || true
+        fi
+    ) &
+
+    echo "✅ Сетевое резервирование активировано"
+    echo "   Таймаут: ${timeout} секунд"
+    echo "   Режим: $mode"
+    echo "   Цель: $([ "$mode" == "preserve" ] && echo "сохранить текущее состояние" || echo "восстановить до чистого состояния")"
+    echo
+    echo "Используйте 'network-failsafe disarm' когда изменения завершены"
+}
+
+# Отключить резервирование
+disarm_failsafe() {
+    if [[ ! -f "$LOCK_FILE" ]]; then
+        echo "ℹ️  Активное резервирование не найдено"
+        return 0
+    fi
+
+    rm -f "$LOCK_FILE"
+    log "Сетевое резервирование отключено вручную"
+    echo "✅ Сетевое резервирование отключено"
+}
+
+# Показать статус
+show_status() {
+    echo "🔍 Статус сетевого резервирования"
+    echo "================================="
+
+    if [[ -f "$LOCK_FILE" ]]; then
+        echo "🔴 АКТИВИРОВАНО - Резервирование активно"
+        echo
+        echo "Конфигурация:"
+        cat "$LOCK_FILE" | sed 's/^/  /'
+        echo
+        echo "Оставшееся время: (проверьте список процессов для процесса sleep)"
+        if pgrep -f "sleep.*network-failsafe" >/dev/null; then
+            echo "  Фоновый процесс запущен"
+        else
+            echo "  ⚠️  Фоновый процесс не найден"
+        fi
+    else
+        echo "🟢 ОТКЛЮЧЕНО - Нет активного резервирования"
+    fi
+
+    echo
+    echo "Доступные снимки:"
+    if [[ -d "$BACKUP_DIR" ]]; then
+        local found_snapshots=false
+        for snapshot in "$BACKUP_DIR"/*; do
+            if [[ -d "$snapshot" ]]; then
+                echo "  $(basename "$snapshot")"
+                found_snapshots=true
+            fi
+        done
+        if ! $found_snapshots; then
+            echo "  (нет)"
+        fi
+    else
+        echo "  (нет)"
+    fi
+
+    echo
+    echo "Текущее состояние системы: $(detect_state)"
+
+    echo
+    echo "Недавняя активность:"
+    if [[ -f "$LOG_FILE" ]]; then
+        tail -5 "$LOG_FILE" | sed 's/^/  /'
+    else
+        echo "  (нет файла логов)"
+    fi
+}
+
+# Протестировать резервирование
+test_failsafe() {
+    local timeout=${1:-15}
+
+    echo "🧪 Тест сетевого резервирования"
+    echo "==============================="
+    echo
+
+    local current_state
+    current_state=$(detect_state)
+    echo "Текущее состояние: $current_state"
+
+    if [[ "$current_state" == "развернуто" ]]; then
+        echo "Ожидаемое поведение: Сохранить состояние развертывания"
+        local test_mode="preserve"
+    else
+        echo "Ожидаемое поведение: Восстановить до чистого состояния"
+        local test_mode="clean"
+    fi
+
+    echo
+    read -p "Продолжить с ${timeout}с тестом? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Тест отменен"
+        return 0
+    fi
+
+    # Очистить любое существующее резервирование
+    disarm_failsafe >/dev/null 2>&1 || true
+
+    echo "🚀 Запуск теста..."
+    arm_failsafe "$timeout" "$test_mode"
+
+    echo
+    echo "⏰ Ожидание таймаута..."
+    for i in $(seq "$timeout" -1 1); do
+        printf "\r   %2d секунд осталось..." $i
+        sleep 1
+    done
+    echo
+
+    # Дать время на завершение восстановления
+    sleep 3
+
+    echo
+    echo "🔍 Результаты теста:"
+    if tail -10 "$LOG_FILE" | grep -q "РЕЗЕРВИРОВАНИЕ СРАБОТАЛО"; then
+        echo "✅ Резервирование сработало успешно"
+
+        local new_state
+        new_state=$(detect_state)
+        echo "Состояние после резервирования: $new_state"
+
+        if [[ "$test_mode" == "preserve" && "$new_state" == "развернуто" ]] ||
+            [[ "$test_mode" == "clean" && "$new_state" == "чисто" ]]; then
+            echo "✅ УСПЕХ: Правильное состояние поддерживается/восстановлено"
+        else
+            echo "❌ СБОЙ: Неожиданное состояние после резервирования"
+        fi
+    else
+        echo "❌ СБОЙ: Резервирование не сработало"
+    fi
+}
+
+# Ручное восстановление
+manual_restore() {
+    echo "🔧 Ручное восстановление сети"
+    echo "============================="
+    echo
+    echo "Доступные снимки:"
+    if [[ -d "$BACKUP_DIR" ]]; then
+        local found_any=false
+        for snapshot in "$BACKUP_DIR"/*; do
+            if [[ -d "$snapshot" ]]; then
+                echo "  $(basename "$snapshot")"
+                found_any=true
+            fi
+        done
+        if ! $found_any; then
+            echo "  (нет)"
+        fi
+    else
+        echo "  (нет)"
+    fi
+    echo
+    read -p "Введите имя снимка для восстановления (или 'cancel'): " snapshot_name
+
+    if [[ "$snapshot_name" == "cancel" || -z "$snapshot_name" ]]; then
+        echo "Восстановление отменено"
+        return 0
+    fi
+
+    if [[ ! -d "$BACKUP_DIR/$snapshot_name" ]]; then
+        echo "❌ Снимок '$snapshot_name' не найден"
+        return 1
+    fi
+
+    echo
+    echo "⚠️  Это восстановит конфигурацию сети до снимка: $snapshot_name"
+    read -p "Вы уверены? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Восстановление отменено"
+        return 0
+    fi
+
+    restore_snapshot "$snapshot_name"
+    echo "✅ Ручное восстановление завершено"
+}
+
+# Основной диспетчер команд
+main() {
+    case "${1:-help}" in
+    arm)
+        arm_failsafe "${2:-}" "${3:-}"
+        ;;
+    disarm)
+        disarm_failsafe
+        ;;
+    status)
+        show_status
+        ;;
+    test)
+        test_failsafe "${2:-}"
+        ;;
+    restore)
+        manual_restore
+        ;;
+    help | --help | -h)
+        show_usage
+        ;;
+    *)
+        echo "❌ Неизвестная команда: ${1:-}"
+        echo
+        show_usage
+        exit 1
+        ;;
+    esac
+}
+
+# Запустить основную функцию со всеми аргументами
+main "$@"
