@@ -83,6 +83,18 @@
       notify:
         - Reload networking
 
+    - name: Ensure vmwg0 interface is up
+      ansible.builtin.command: ifup vmwg0
+      register: ifup_result
+      failed_when: ifup_result.rc != 0 and "already configured" not in ifup_result.stderr
+      changed_when: ifup_result.rc == 0 and "already configured" not in ifup_result.stderr
+
+    - name: Verify vmwg0 interface is operational
+      ansible.builtin.command: ip addr show vmwg0
+      register: vmwg0_status
+      failed_when: "'10.10.0.1/24' not in vmwg0_status.stdout"
+      changed_when: false
+
     - name: Enable and start WireGuard service
       ansible.builtin.systemd:
         name: wg-quick@wg0
