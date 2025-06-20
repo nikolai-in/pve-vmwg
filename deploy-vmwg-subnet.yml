@@ -20,6 +20,13 @@
         state: present
         update_cache: true
 
+    - name: Disable default dnsmasq service (per Proxmox docs)
+      ansible.builtin.systemd:
+        name: dnsmasq
+        state: stopped
+        enabled: false
+      failed_when: false
+
     - name: Create WireGuard configuration directory
       ansible.builtin.file:
         path: /etc/wireguard

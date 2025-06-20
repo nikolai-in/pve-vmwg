@@ -21,6 +21,15 @@
         enabled: false
       failed_when: false
 
+    - name: Re-enable default dnsmasq service (optional - was disabled for Proxmox)
+      ansible.builtin.systemd:
+        name: dnsmasq
+        state: stopped
+        enabled: false
+      failed_when: false
+      # Note: We keep it disabled as per Proxmox best practices
+      # Change 'enabled: false' to 'enabled: true' if you want to restore it
+
     - name: Check if vmwg0 interface exists
       ansible.builtin.command: ip link show vmwg0
       register: vmwg0_check
