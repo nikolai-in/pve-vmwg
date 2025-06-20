@@ -36,27 +36,27 @@ echo "✅ Конфиг сервера найден"
 
 # Тестируем подключение
 echo
-echo "🔗 Проверяем связь с Proxmox..."
+echo "🔗 Пингуем Proxmox..."
 if ansible proxmox_hosts -m ping -o; then
-    echo "✅ Хост Proxmox доступен"
+    echo "✅ Сервер доступен"
 else
-    echo "❌ Не удается достичь хост Proxmox"
-    echo "Проверьте ваш inventory.yml и SSH подключение"
+    echo "❌ Сервер недоступен"
+    echo "Проверьте inventory.yml и SSH"
     exit 1
 fi
 
 echo
-echo "📋 Сводка инвентаря:"
+echo "📋 Что настроено:"
 ansible-inventory --list --yaml | head -20
 
 echo
-echo "🔧 Статус системы резервирования:"
-echo "- Унифицированный скрипт: src/network-failsafe"
-echo "- Экстренное восстановление: src/recover-network.sh"
-echo "- Шаблоны: $(find templates/ -name '*.j2' | wc -l) шаблонов Jinja2"
+echo "🔧 Скрипты защиты:"
+echo "- Основной: src/network-failsafe"
+echo "- Аварийный: src/recover-network.sh"
+echo "- Шаблонов: $(find templates/ -name '*.j2' | wc -l)"
 
 echo
-echo "✅ Проверка настройки завершена!"
+echo "✅ Все готово!"
 echo
-echo "🚀 Готов к развертыванию!"
-echo "Запустите: ansible-playbook -i inventory.yml deploy-vmwg-subnet.yml"
+echo "🚀 Запускаем:"
+echo "ansible-playbook -i inventory.yml deploy-vmwg-subnet.yml"
