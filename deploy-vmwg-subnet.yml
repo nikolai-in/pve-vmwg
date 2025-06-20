@@ -127,6 +127,26 @@
         dest: /root/debug-vmwg0.sh
         mode: "0755"
 
+    - name: Add vmwg0 bridge to main Proxmox interfaces file
+      ansible.builtin.blockinfile:
+        path: /etc/network/interfaces
+        block: |
+
+          # VM Subnet Bridge with WireGuard VPN routing
+          # Managed by Ansible - do not edit manually
+          auto vmwg0
+          iface vmwg0 inet static
+              address {{ vm_gateway }}/24
+              bridge_ports none
+              bridge_stp off
+              bridge_fd 0
+              # Advanced configuration in /etc/network/interfaces.d/vmwgnat
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - vmwg0"
+        backup: true
+        create: false
+      notify:
+        - Reload proxmox services
+
   handlers:
     - name: Restart wireguard
       ansible.builtin.systemd:
@@ -154,3 +174,12 @@
       register: networking_reload_result
       failed_when: networking_reload_result.rc != 0 and "does not exist" not in networking_reload_result.stderr
       changed_when: "'Interface reloaded' in networking_reload_result.stdout"
+
+    - name: Reload proxmox services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: reloaded
+      loop:
+        - pveproxy
+        - pvedaemon
+      failed_when: false
