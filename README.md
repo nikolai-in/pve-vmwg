@@ -41,58 +41,68 @@ Ansible-скрипты для создания подсети ВМ на Proxmox.
 
 ```mermaid
 graph TB
-    subgraph "Proxmox Host"
-        subgraph "VM Subnet 10.10.0.0/24"
-            VM1["VM 1<br/>10.10.0.2"]
-            VM2["VM 2<br/>10.10.0.3"]
-            VM3["VM N<br/>10.10.0.x"]
+    subgraph "Хост Proxmox"
+        subgraph "Подсеть ВМ 10.10.0.0/24"
+            VM1["ВМ 1<br/>10.10.0.2"]
+            VM2["ВМ 2<br/>10.10.0.3"]
+            VM3["ВМ N<br/>10.10.0.x"]
         end
 
-        Bridge["vmwg0 Bridge<br/>10.10.0.1/24<br/>DHCP Server"]
-        WG["WireGuard wg0<br/>VPN Interface"]
-        Physical["Physical Interface<br/>eth0/ens18"]
+        Bridge["Мост vmwg0<br/>10.10.0.1/24<br/>DHCP Сервер"]
+        WG["WireGuard wg0<br/>VPN Интерфейс"]
+        Physical["Физический интерфейс<br/>eth0/ens18"]
+        Host["Хост Proxmox<br/>Обычный трафик"]
 
         VM1 --> Bridge
         VM2 --> Bridge
         VM3 --> Bridge
 
-        Bridge -->|NAT Rules| WG
-        WG --> Physical
+        Bridge -->|NAT правила| WG
+        WG -->|Трафик ВМ через VPN| Physical
+        Host -->|Прямое подключение| Physical
     end
 
-    subgraph "External Network"
-        VPN_Server["WireGuard Server<br/>External VPN Provider"]
-        Web["🌐 Internet"]
+    subgraph "Внешняя сеть"
+        VPN_Server["WireGuard Сервер<br/>Внешний VPN провайдер"]
+        ISP["Интернет провайдер<br/>Обычный трафик"]
+        Web["🌐 Интернет"]
     end
 
-    Physical -->|Encrypted VPN Tunnel| VPN_Server
+    Physical -->|Зашифрованный VPN туннель<br/>Трафик ВМ| VPN_Server
+    Physical -->|Обычное подключение<br/>Трафик хоста| ISP
     VPN_Server --> Web
+    ISP --> Web
 
-    subgraph "Network Protection"
-        Failsafe["network-failsafe<br/>⏰ Auto-restore timer<br/>🔒 Configuration backup"]
+    subgraph "Защита сети"
+        Failsafe["network-failsafe<br/>⏰ Таймер авто-восстановления<br/>🔒 Резервная копия конфигурации"]
     end
 
-    Failsafe -.->|Monitors & Protects| Bridge
-    Failsafe -.->|Emergency Restore| Physical
+    Failsafe -.->|Мониторинг и защита| Bridge
+    Failsafe -.->|Экстренное восстановление| Physical
 
     classDef vm fill:#1976d2,stroke:#0d47a1,stroke-width:2px,color:#ffffff
     classDef network fill:#7b1fa2,stroke:#4a148c,stroke-width:2px,color:#ffffff
     classDef vpn fill:#388e3c,stroke:#1b5e20,stroke-width:2px,color:#ffffff
     classDef protection fill:#f57c00,stroke:#e65100,stroke-width:2px,color:#ffffff
+    classDef host fill:#d32f2f,stroke:#b71c1c,stroke-width:2px,color:#ffffff
 
     class VM1,VM2,VM3 vm
     class Bridge,Physical network
     class WG,VPN_Server vpn
     class Failsafe protection
+    class Host,ISP host
 ```
 
 ### Поток трафика
 
 1. **ВМ** отправляют трафик через мост `vmwg0`
-2. **NAT** перенаправляет трафик с подсети 10.10.0.0/24 на интерфейс `wg0`
-3. **WireGuard** шифрует и отправляет через физический интерфейс
-4. **VPN-сервер** расшифровывает и отправляет в интернет
-5. **Защита** следит за конфигурацией и восстанавливает при сбое
+2. **NAT правила** перенаправляют трафик ВМ с подсети 10.10.0.0/24 на интерфейс `wg0`
+3. **WireGuard** шифрует трафик ВМ и отправляет через физический интерфейс
+4. **VPN-сервер** расшифровывает трафик ВМ и отправляет в интернет
+5. **Хост Proxmox** использует обычное подключение через провайдера (без VPN)
+6. **Защита** следит за конфигурацией и восстанавливает при сбое
+
+**Важно:** Только трафик ВМ идет через VPN, трафик самого хоста Proxmox остается обычным.
 
 ## Структура проекта
 
