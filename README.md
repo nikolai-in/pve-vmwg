@@ -11,16 +11,6 @@ Ansible-скрипты для создания подсети ВМ на Proxmox.
   - [Архитектура сети](#архитектура-сети)
     - [Поток трафика](#поток-трафика)
   - [Структура проекта](#структура-проекта)
-  - [Файлы, создаваемые на сервере](#файлы-создаваемые-на-сервере)
-    - [Сетевая конфигурация](#сетевая-конфигурация)
-    - [WireGuard VPN](#wireguard-vpn)
-    - [Сетевой интерфейс](#сетевой-интерфейс)
-    - [DHCP сервер (dnsmasq)](#dhcp-сервер-dnsmasq)
-    - [Системные сервисы](#системные-сервисы)
-    - [Диагностические инструменты](#диагностические-инструменты)
-    - [Журналы и мониторинг](#журналы-и-мониторинг)
-    - [Скрипты управления и диагностики](#скрипты-управления-и-диагностики)
-    - [Зачем такие параметры?](#зачем-такие-параметры)
   - [Быстрый старт](#быстрый-старт)
     - [Настройка переменных](#настройка-переменных)
   - [Защита от ошибок конфигурации сети](#защита-от-ошибок-конфигурации-сети)
@@ -32,6 +22,16 @@ Ansible-скрипты для создания подсети ВМ на Proxmox.
     - [Быстрая проверка](#быстрая-проверка)
     - [Ручное тестирование](#ручное-тестирование)
     - [Проверка сети](#проверка-сети)
+  - [Файлы, создаваемые на сервере](#файлы-создаваемые-на-сервере)
+    - [Сетевая конфигурация](#сетевая-конфигурация)
+    - [WireGuard VPN](#wireguard-vpn)
+    - [Сетевой интерфейс](#сетевой-интерфейс)
+    - [DHCP сервер (dnsmasq)](#dhcp-сервер-dnsmasq)
+    - [Системные сервисы](#системные-сервисы)
+    - [Диагностические инструменты](#диагностические-инструменты)
+    - [Журналы и мониторинг](#журналы-и-мониторинг)
+    - [Скрипты управления и диагностики](#скрипты-управления-и-диагностики)
+    - [Зачем такие параметры?](#зачем-такие-параметры)
 
 ## Требования
 
@@ -132,6 +132,134 @@ graph TB
     ├── dnsmasq@.service.j2     # systemd сервис
     ├── vmwgnat.j2              # сетевой интерфейс
     └── wg0.conf.j2             # конфиг WireGuard
+```
+
+## Быстрый старт
+
+1. Скопировать пример конфига
+
+   ```bash
+   cp inventory.example.yml inventory.yml
+   ```
+
+2. Заполнить свои данные в [inventory.yml](inventory.yml)
+
+3. Изменить конфигурацию ansible в [ansible.cfg](ansible.cfg), если не используете WSL
+
+4. Развернуть
+
+   ```bash
+   ansible-playbook deploy-vmwg-subnet.yml
+   ```
+
+5. В случае неудовлетворения, можно откатить изменения:
+
+   ```bash
+   ansible-playbook cleanup-vmwg-subnet.yml
+   ```
+
+### Настройка переменных
+
+В `deploy-vmwg-subnet.yml` можно изменить:
+
+```yaml
+vars:
+  vm_subnet: "10.10.0.0/24" # подсеть ВМ
+  vm_gateway: "10.10.0.1" # шлюз
+  vm_dhcp_range_start: "10.10.0.2" # начало DHCP
+  vm_dhcp_range_end: "10.10.0.254" # конец DHCP
+  routing_table_id: 200 # ID таблицы маршрутизации
+```
+
+## Защита от ошибок конфигурации сети
+
+Чтобы не потерять доступ к серверу при настройке сети:
+
+### Как работает
+
+1. Сохраняет текущие настройки
+2. Ставит таймер на 5 минут
+3. Если все ОК — отключается сама
+4. Если сломалось — откатывает обратно
+
+### Команды
+
+```bash
+network-failsafe status          # статус
+network-failsafe test            # тест на 15 секунд
+network-failsafe arm 300         # включить на 5 минут
+network-failsafe disarm          # выключить
+```
+
+### Если что-то пошлось не так
+
+```bash
+# Откат изменений
+ansible-playbook cleanup-vmwg-subnet.yml
+```
+
+#### Из консоли серверa Proxmox
+
+```bash
+# Проверить процессы защиты
+ps aux | grep network-failsafe
+
+# Почистить зависшие процессы
+pkill -f network-failsafe
+rm -f /tmp/network-failsafe.lock
+
+# Логи
+tail -20 /var/log/network-failsafe.log
+
+# Восстановление сети через систему защиты
+network-failsafe restore
+```
+
+## Тестирование системы
+
+### Быстрая проверка
+
+SSH на Proxmox и запустить:
+
+```bash
+# Статус защиты
+network-failsafe status
+
+# Автотест (15 сек, безопасно)
+network-failsafe test
+
+# Диагностика сети
+/root/debug-vmwg0.sh
+```
+
+### Ручное тестирование
+
+```bash
+# Включить защиту на 1 минуту
+network-failsafe arm 60
+
+# Посмотреть что происходит
+tail -f /var/log/network-failsafe.log
+
+# Досрочно выключить (опционально)
+network-failsafe disarm
+```
+
+### Проверка сети
+
+```bash
+# Интерфейсы
+ip addr show vmwg0
+
+# Сервисы
+systemctl status wg-quick@wg0
+systemctl status dnsmasq@vmwgnat
+
+# NAT правила
+iptables -t nat -L POSTROUTING | grep 10.10.0
+
+# Таблица маршрутизации
+ip rule show | grep 200
 ```
 
 ## Файлы, создаваемые на сервере
@@ -408,131 +536,3 @@ ip route show table 200
 - `dhcp-authoritative` - быстрые ответы, не ждем других DHCP серверов
 - `port=0` - отключаем DNS во избежание конфликтов с Proxmox
 - `bind-interfaces` - безопасность, слушаем только нужные интерфейсы
-
-## Быстрый старт
-
-1. Скопировать пример конфига
-
-   ```bash
-   cp inventory.example.yml inventory.yml
-   ```
-
-2. Заполнить свои данные в [inventory.yml](inventory.yml)
-
-3. Изменить конфигурацию ansible в [ansible.cfg](ansible.cfg), если не используете WSL
-
-4. Развернуть
-
-   ```bash
-   ansible-playbook deploy-vmwg-subnet.yml
-   ```
-
-5. В случае неудовлетворения, можно откатить изменения:
-
-   ```bash
-   ansible-playbook cleanup-vmwg-subnet.yml
-   ```
-
-### Настройка переменных
-
-В `deploy-vmwg-subnet.yml` можно изменить:
-
-```yaml
-vars:
-  vm_subnet: "10.10.0.0/24" # подсеть ВМ
-  vm_gateway: "10.10.0.1" # шлюз
-  vm_dhcp_range_start: "10.10.0.2" # начало DHCP
-  vm_dhcp_range_end: "10.10.0.254" # конец DHCP
-  routing_table_id: 200 # ID таблицы маршрутизации
-```
-
-## Защита от ошибок конфигурации сети
-
-Чтобы не потерять доступ к серверу при настройке сети:
-
-### Как работает
-
-1. Сохраняет текущие настройки
-2. Ставит таймер на 5 минут
-3. Если все ОК — отключается сама
-4. Если сломалось — откатывает обратно
-
-### Команды
-
-```bash
-network-failsafe status          # статус
-network-failsafe test            # тест на 15 секунд
-network-failsafe arm 300         # включить на 5 минут
-network-failsafe disarm          # выключить
-```
-
-### Если что-то пошлось не так
-
-```bash
-# Откат изменений
-ansible-playbook cleanup-vmwg-subnet.yml
-```
-
-#### Из консоли серверa Proxmox
-
-```bash
-# Проверить процессы защиты
-ps aux | grep network-failsafe
-
-# Почистить зависшие процессы
-pkill -f network-failsafe
-rm -f /tmp/network-failsafe.lock
-
-# Логи
-tail -20 /var/log/network-failsafe.log
-
-# Восстановление сети через систему защиты
-network-failsafe restore
-```
-
-## Тестирование системы
-
-### Быстрая проверка
-
-SSH на Proxmox и запустить:
-
-```bash
-# Статус защиты
-network-failsafe status
-
-# Автотест (15 сек, безопасно)
-network-failsafe test
-
-# Диагностика сети
-/root/debug-vmwg0.sh
-```
-
-### Ручное тестирование
-
-```bash
-# Включить защиту на 1 минуту
-network-failsafe arm 60
-
-# Посмотреть что происходит
-tail -f /var/log/network-failsafe.log
-
-# Досрочно выключить (опционально)
-network-failsafe disarm
-```
-
-### Проверка сети
-
-```bash
-# Интерфейсы
-ip addr show vmwg0
-
-# Сервисы
-systemctl status wg-quick@wg0
-systemctl status dnsmasq@vmwgnat
-
-# NAT правила
-iptables -t nat -L POSTROUTING | grep 10.10.0
-
-# Таблица маршрутизации
-ip rule show | grep 200
-```
