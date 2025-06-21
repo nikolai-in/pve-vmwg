@@ -75,10 +75,10 @@ graph TB
     Failsafe -.->|Monitors & Protects| Bridge
     Failsafe -.->|Emergency Restore| Physical
 
-    classDef vm fill:#e1f5fe
-    classDef network fill:#f3e5f5
-    classDef vpn fill:#e8f5e8
-    classDef protection fill:#fff3e0
+    classDef vm fill:#1976d2,stroke:#0d47a1,stroke-width:2px,color:#ffffff
+    classDef network fill:#7b1fa2,stroke:#4a148c,stroke-width:2px,color:#ffffff
+    classDef vpn fill:#388e3c,stroke:#1b5e20,stroke-width:2px,color:#ffffff
+    classDef protection fill:#f57c00,stroke:#e65100,stroke-width:2px,color:#ffffff
 
     class VM1,VM2,VM3 vm
     class Bridge,Physical network
