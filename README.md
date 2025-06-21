@@ -8,6 +8,8 @@ Ansible-скрипты для создания подсети ВМ на Proxmox.
   - [Содержание](#содержание)
   - [Требования](#требования)
   - [Что получится](#что-получится)
+  - [Архитектура сети](#архитектура-сети)
+    - [Поток трафика](#поток-трафика)
   - [Структура проекта](#структура-проекта)
   - [Быстрый старт](#быстрый-старт)
     - [Настройка переменных](#настройка-переменных)
@@ -34,6 +36,63 @@ Ansible-скрипты для создания подсети ВМ на Proxmox.
 - **DHCP** через dnsmasq раздает IP 10.10.0.2-254
 - **VPN**: весь трафик ВМ через WireGuard
 - **Защита**: откатывается автоматически, если что-то сломается
+
+## Архитектура сети
+
+```mermaid
+graph TB
+    subgraph "Proxmox Host"
+        subgraph "VM Subnet 10.10.0.0/24"
+            VM1["VM 1<br/>10.10.0.2"]
+            VM2["VM 2<br/>10.10.0.3"]
+            VM3["VM N<br/>10.10.0.x"]
+        end
+
+        Bridge["vmwg0 Bridge<br/>10.10.0.1/24<br/>DHCP Server"]
+        WG["WireGuard wg0<br/>VPN Interface"]
+        Physical["Physical Interface<br/>eth0/ens18"]
+
+        VM1 --> Bridge
+        VM2 --> Bridge
+        VM3 --> Bridge
+
+        Bridge -->|NAT Rules| WG
+        WG --> Physical
+    end
+
+    subgraph "External Network"
+        VPN_Server["WireGuard Server<br/>External VPN Provider"]
+        Web["🌐 Internet"]
+    end
+
+    Physical -->|Encrypted VPN Tunnel| VPN_Server
+    VPN_Server --> Web
+
+    subgraph "Network Protection"
+        Failsafe["network-failsafe<br/>⏰ Auto-restore timer<br/>🔒 Configuration backup"]
+    end
+
+    Failsafe -.->|Monitors & Protects| Bridge
+    Failsafe -.->|Emergency Restore| Physical
+
+    classDef vm fill:#e1f5fe
+    classDef network fill:#f3e5f5
+    classDef vpn fill:#e8f5e8
+    classDef protection fill:#fff3e0
+
+    class VM1,VM2,VM3 vm
+    class Bridge,Physical network
+    class WG,VPN_Server vpn
+    class Failsafe protection
+```
+
+### Поток трафика
+
+1. **ВМ** отправляют трафик через мост `vmwg0`
+2. **NAT** перенаправляет трафик с подсети 10.10.0.0/24 на интерфейс `wg0`
+3. **WireGuard** шифрует и отправляет через физический интерфейс
+4. **VPN-сервер** расшифровывает и отправляет в интернет
+5. **Защита** следит за конфигурацией и восстанавливает при сбое
 
 ## Структура проекта
 
