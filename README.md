@@ -198,6 +198,22 @@ network-failsafe disarm          # выключить
 ansible-playbook cleanup-vmwg-subnet.yml
 ```
 
+#### Проблема с запуском контейнеров LXC
+
+Если контейнеры не запускаются с ошибкой D-Bus:
+```
+The name uk.org.thekelleys.dnsmasq.dhcpsnat was not provided by any .service files
+```
+
+**Причина:** Proxmox ожидает D-Bus интеграцию с dnsmasq для управления DHCP.
+
+**Решение:** Повторно запустите плейбук (исправление уже добавлено):
+```bash
+ansible-playbook deploy-vmwg-subnet.yml
+```
+
+Подробнее смотрите в файле [DBUS-FIX.md](DBUS-FIX.md).
+
 #### Из консоли серверa Proxmox
 
 ```bash

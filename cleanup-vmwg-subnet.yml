@@ -175,6 +175,8 @@
         - /etc/network/interfaces.d/vmwgnat
         # dnsmasq configuration
         - /etc/dnsmasq.d/vmwgnat
+        # D-Bus policy for dnsmasq
+        - /etc/dbus-1/system.d/dnsmasq-dhcpsnat.conf
         # Systemd service files
         - /etc/systemd/system/dnsmasq@.service
         - /etc/systemd/system/wg-quick@wg0.service.d

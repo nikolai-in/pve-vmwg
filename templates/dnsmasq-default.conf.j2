@@ -10,6 +10,9 @@ dhcp-leasefile=/var/lib/misc/dnsmasq.vmwgnat.leases
 dhcp-hostsfile=/etc/dnsmasq.d/vmwgnat/ethers
 # dhcp-ignore=tag:!known
 
+# D-Bus integration for Proxmox compatibility
+enable-dbus=uk.org.thekelleys.dnsmasq.dhcpsnat
+
 # Adjusted MTU for better compatibility with both interfaces
 dhcp-option=26,1380
 ra-param=*,mtu:1380,0

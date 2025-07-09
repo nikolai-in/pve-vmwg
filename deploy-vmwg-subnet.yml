@@ -104,6 +104,16 @@
         state: touch
         mode: "0644"
 
+    - name: Deploy D-Bus policy for dnsmasq dhcpsnat service
+      ansible.builtin.template:
+        src: templates/dnsmasq-dhcpsnat.conf.j2
+        dest: /etc/dbus-1/system.d/dnsmasq-dhcpsnat.conf
+        mode: "0644"
+        backup: true
+      notify:
+        - Reload dbus
+        - Restart dnsmasq
+
     - name: Deploy dnsmasq systemd service template
       ansible.builtin.template:
         src: templates/dnsmasq@.service.j2
@@ -300,4 +310,10 @@
       loop:
         - pveproxy
         - pvedaemon
+      failed_when: false
+
+    - name: Reload dbus
+      ansible.builtin.systemd:
+        name: dbus
+        state: reloaded
       failed_when: false
