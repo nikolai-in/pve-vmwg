@@ -104,23 +104,6 @@
         state: touch
         mode: "0644"
 
-    - name: Remove old D-Bus policy file if exists (avoid conflicts)
-      ansible.builtin.file:
-        path: /etc/dbus-1/system.d/dnsmasq-dhcpsnat.conf
-        state: absent
-      notify:
-        - Reload dbus
-
-    - name: Deploy D-Bus policy for dnsmasq vmwgnat service
-      ansible.builtin.template:
-        src: templates/dnsmasq-vmwgnat.conf.j2
-        dest: /etc/dbus-1/system.d/dnsmasq-vmwgnat.conf
-        mode: "0644"
-        backup: true
-      notify:
-        - Reload dbus
-        - Restart dnsmasq
-
     - name: Deploy dnsmasq systemd service template
       ansible.builtin.template:
         src: templates/dnsmasq@.service.j2
@@ -193,6 +176,20 @@
         enabled: true
         state: started
         daemon_reload: true
+
+    - name: Wait for dnsmasq to stabilize
+      ansible.builtin.pause:
+        seconds: 3
+
+    - name: Check if dnsmasq@vmwgnat is running successfully
+      ansible.builtin.systemd:
+        name: dnsmasq@vmwgnat
+        state: started
+      register: dnsmasq_status
+
+    - name: Show dnsmasq status for debugging
+      ansible.builtin.debug:
+        msg: "dnsmasq@vmwgnat status: {{ dnsmasq_status }}"
 
     - name: Ensure IP forwarding is enabled
       ansible.posix.sysctl:
@@ -308,6 +305,7 @@
           - network-failsafe test       (test failsafe system)
           - network-failsafe arm        (manual failsafe)
           - /root/debug-vmwg0.sh        (network troubleshooting)
+          - /root/debug-dnsmasq.sh      (dnsmasq troubleshooting)
 
   handlers:
     - name: Restart wireguard
@@ -353,10 +351,4 @@
       loop:
         - pveproxy
         - pvedaemon
-      failed_when: false
-
-    - name: Reload dbus
-      ansible.builtin.systemd:
-        name: dbus
-        state: reloaded
       failed_when: false

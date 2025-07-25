@@ -128,9 +128,9 @@ graph TB
 │   └── network-failsafe        # скрипт защиты сети
 └── templates/                  # шаблоны конфигов
     ├── debug-vmwg0.sh.j2       # диагностика
+    ├── debug-dnsmasq.sh.j2     # диагностика dnsmasq
     ├── dnsmasq-default.conf.j2 # базовая настройка dnsmasq
     ├── dnsmasq-vmwg0.conf.j2   # DHCP для vmwg0
-    ├── dnsmasq-vmwgnat.conf.j2 # D-Bus политика для vmwgnat
     ├── dnsmasq@.service.j2     # systemd сервис
     ├── vmwgnat.j2              # сетевой интерфейс
     └── wg0.conf.j2             # конфиг WireGuard
@@ -208,22 +208,21 @@ ansible-playbook cleanup-vmwg-subnet.yml
 The name uk.org.thekelleys.dnsmasq.dhcpsnat was not provided by any .service files
 ```
 
-**Причина:** Конфликт D-Bus имен между нашим сервисом и стандартным Proxmox SDN.
+**Причина:** Конфликт интерфейсов или порядка запуска сервисов.
 
-**Решение:** Повторно запустите плейбук (исправление уже добавлено):
+**Решение:** Повторно запустите плейбук (исправления применены):
 
 ```bash
 ansible-playbook deploy-vmwg-subnet.yml
 ```
 
-**Что исправлено в новой версии:**
+**Что исправлено:**
+- Изменено на `bind-dynamic` (ждет появления интерфейса)
+- Добавлены systemd зависимости от сетевых интерфейсов
+- Улучшен порядок запуска сервисов
+- Убрана ненужная D-Bus интеграция (упрощение архитектуры)
 
-- Изменено D-Bus имя с `dhcpsnat` на `vmwgnat` для избежания конфликтов
-- Добавлены ограничения по интерфейсам (`interface=vmwg0`, `bind-interfaces`)
-- Автоматическая очистка старых D-Bus файлов при развертывании
-- Совместимость со стандартными SDN сетями Proxmox
-
-Подробнее смотрите в файлах [DBUS-FIX.md](DBUS-FIX.md) и [DBUS-CONFLICT-FIX.md](DBUS-CONFLICT-FIX.md).
+Подробнее смотрите в файлах [DNSMASQ-INTERFACE-FIX.md](DNSMASQ-INTERFACE-FIX.md) и [DBUS-REMOVAL-EXPLANATION.md](DBUS-REMOVAL-EXPLANATION.md).
 
 #### Из консоли серверa Proxmox
 
@@ -386,15 +385,12 @@ ip-forward on                # включаем IP форвардинг
 # Только работаем с vmwg0 интерфейсом (избегаем конфликтов с Proxmox SDN)
 interface=vmwg0             # только на vmwg0
 except-interface=lo         # не слушаем на loopback
-bind-interfaces             # строгая привязка к интерфейсам
+bind-dynamic                # ждем появления интерфейса (не требует его при запуске)
 enable-ra                   # Router Advertisement для IPv6
 quiet-ra                    # тихий режим RA
 no-hosts                    # не читаем /etc/hosts
 dhcp-leasefile=/var/lib/misc/dnsmasq.vmwgnat.leases
 dhcp-hostsfile=/etc/dnsmasq.d/vmwgnat/ethers  # статические привязки MAC->IP
-
-# D-Bus интеграция с уникальным именем для избежания конфликтов
-enable-dbus=uk.org.thekelleys.dnsmasq.vmwgnat
 
 # Уменьшенный MTU для совместимости с VPN
 dhcp-option=26,1380         # MTU 1380 (1500 - 20 IP - 8 UDP - 32 WireGuard - 60 запас)
@@ -470,28 +466,6 @@ Wants=network-online.target
 # Гарантируем запуск после настройки vmwg0
 After=network.target
 Requires=network.target
-```
-
-**`/etc/dbus-1/system.d/dnsmasq-vmwgnat.conf`** - D-Bus политика для vmwgnat
-
-```xml
-<?xml version="1.0"?>
-<!DOCTYPE busconfig PUBLIC
- "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
- "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig>
-  <!-- Политика D-Bus для сервиса vmwgnat -->
-  <!-- Отдельное имя для избежания конфликтов с dhcpsnat -->
-  <policy user="root">
-    <allow own="uk.org.thekelleys.dnsmasq.vmwgnat"/>
-    <allow send_destination="uk.org.thekelleys.dnsmasq.vmwgnat"/>
-    <allow receive_sender="uk.org.thekelleys.dnsmasq.vmwgnat"/>
-  </policy>
-  <policy user="www-data">
-    <allow send_destination="uk.org.thekelleys.dnsmasq.vmwgnat"/>
-    <allow receive_sender="uk.org.thekelleys.dnsmasq.vmwgnat"/>
-  </policy>
-</busconfig>
 ```
 
 ### Диагностические инструменты

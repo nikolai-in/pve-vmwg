@@ -37,22 +37,14 @@ echo "Файлы в /etc/dnsmasq.d/vmwgnat/:"
 ls -la /etc/dnsmasq.d/vmwgnat/ 2>/dev/null || echo "Директория не найдена"
 echo ""
 
-echo "5. Проверка D-Bus политики:"
-if [ -f /etc/dbus-1/system.d/dnsmasq-vmwgnat.conf ]; then
-    echo "✅ D-Bus политика существует"
-else
-    echo "❌ D-Bus политика отсутствует"
-fi
-echo ""
-
-echo "6. Последние логи сервиса:"
+echo "5. Последние логи сервиса:"
 journalctl -u dnsmasq@vmwgnat --no-pager -n 10
 echo ""
 
-echo "7. Проверка конфликтов портов:"
+echo "6. Проверка конфликтов портов:"
 echo "Процессы, использующие порт 53:"
 ss -tuln | grep :53 || echo "Нет процессов на порту 53"
 echo ""
 
-echo "8. Другие dnsmasq сервисы:"
+echo "7. Другие dnsmasq сервисы:"
 systemctl list-units --type=service | grep dnsmasq || echo "Других dnsmasq сервисов не найдено"
