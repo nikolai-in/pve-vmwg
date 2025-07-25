@@ -200,6 +200,8 @@
         # Debug and diagnostic scripts
         - /root/debug-vmwg0.sh
         - /root/debug-dnsmasq.sh
+        - /root/debug-lxc.sh
+        - /root/fix-proxmox-sdn.sh
         # Failsafe system files
         - /usr/local/bin/network-failsafe
         - /usr/local/bin/disarm-failsafe.sh

@@ -191,6 +191,38 @@
       ansible.builtin.debug:
         msg: "dnsmasq@vmwgnat status: {{ dnsmasq_status }}"
 
+    - name: Check if standard Proxmox SDN dnsmasq service exists
+      ansible.builtin.stat:
+        path: /etc/dnsmasq.d/dhcpsnat
+      register: dhcpsnat_config_check
+
+    - name: Ensure standard Proxmox SDN dnsmasq service is running
+      ansible.builtin.systemd:
+        name: dnsmasq@dhcpsnat
+        enabled: true
+        state: started
+        daemon_reload: true
+      when: dhcpsnat_config_check.stat.exists
+      failed_when: false
+
+    - name: Verify standard Proxmox SDN D-Bus service is available
+      ansible.builtin.shell: |
+        # Wait a moment for D-Bus registration
+        sleep 2
+        if dbus-send --system --dest=org.freedesktop.DBus --print-reply /org/freedesktop/DBus org.freedesktop.DBus.ListNames | grep -q "uk.org.thekelleys.dnsmasq.dhcpsnat"; then
+          echo "Standard Proxmox SDN D-Bus service is available"
+        else
+          echo "Standard Proxmox SDN D-Bus service is NOT available"
+        fi
+      register: dbus_check_result
+      when: dhcpsnat_config_check.stat.exists
+      changed_when: false
+
+    - name: Show D-Bus service status
+      ansible.builtin.debug:
+        msg: "{{ dbus_check_result.stdout }}"
+      when: dhcpsnat_config_check.stat.exists and dbus_check_result is defined
+
     - name: Ensure IP forwarding is enabled
       ansible.posix.sysctl:
         name: net.ipv4.ip_forward
@@ -225,6 +257,12 @@
       ansible.builtin.template:
         src: templates/debug-dnsmasq.sh.j2
         dest: /root/debug-dnsmasq.sh
+        mode: "0755"
+
+    - name: Create LXC debug script
+      ansible.builtin.template:
+        src: templates/debug-lxc.sh.j2
+        dest: /root/debug-lxc.sh
         mode: "0755"
 
     - name: Add vmwg0 bridge to main Proxmox interfaces file
@@ -352,3 +390,41 @@
         - pveproxy
         - pvedaemon
       failed_when: false
+
+    - name: Deploy Proxmox SDN fix script
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/fix-proxmox-sdn.sh.j2"
+        dest: "/root/fix-proxmox-sdn.sh"
+        mode: '0755'
+        owner: root
+        group: root
+      tags: 
+        - scripts
+        - debug
+
+    - name: Deployment complete - show next steps
+      ansible.builtin.debug:
+        msg: |
+          
+          ✅ Развертывание завершено!
+          
+          📋 Следующие шаги:
+          
+          1. Проверить работу vmwgnat:
+             systemctl status vmwgnat
+          
+          2. Восстановить стандартный Proxmox SDN:
+             /root/fix-proxmox-sdn.sh
+          
+          3. Проверить LXC контейнеры:
+             pct start 222
+          
+          4. Диагностика проблем:
+             /root/debug-vmwg0.sh
+             /root/debug-lxc.sh
+          
+          ℹ️  IP адреса VM subnet: {{ vm_subnet }}
+          🚪 Gateway: {{ vm_gateway }}
+          🔗 WireGuard: {{ wg_server_endpoint }}
+          
+          📝 Настройка завершена!
