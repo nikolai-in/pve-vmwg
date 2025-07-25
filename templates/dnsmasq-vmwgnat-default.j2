@@ -1,0 +1,14 @@
+# dnsmasq default configuration for vmwgnat instance
+# This file will be read by standard Proxmox systemd-helper
+
+# Configuration directory
+CONFIG_DIR="/etc/dnsmasq.d/vmwgnat,*.conf"
+
+# No special DNSMASQ_OPTS needed for vmwgnat (no D-Bus)
+# DNSMASQ_OPTS=""
+
+# User to run as
+DNSMASQ_USER="dnsmasq"
+
+# Optional: Specific interfaces (already configured in dnsmasq.conf)
+# DNSMASQ_INTERFACE="vmwg0"

@@ -104,12 +104,16 @@
         state: touch
         mode: "0644"
 
-    - name: Deploy dnsmasq systemd service template
+    - name: Create dnsmasq default configuration for vmwgnat
       ansible.builtin.template:
-        src: templates/dnsmasq@.service.j2
-        dest: /etc/systemd/system/dnsmasq@.service
+        src: templates/dnsmasq-vmwgnat-default.j2
+        dest: /etc/default/dnsmasq.vmwgnat
         mode: "0644"
-        backup: true
+
+    - name: Remove custom systemd template (restore to Proxmox standard)
+      ansible.builtin.file:
+        path: /etc/systemd/system/dnsmasq@.service
+        state: absent
       notify:
         - Reload systemd
 
