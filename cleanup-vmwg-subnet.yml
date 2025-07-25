@@ -74,11 +74,29 @@
 
     - name: Kill any remaining failsafe background processes
       ansible.builtin.shell: |
-        pkill -f "network-failsafe" || true
-        pkill -f "sleep.*network-failsafe" || true
-        echo "Background processes cleaned up"
+        set -e
+        found_processes=false
+
+        # Check for network-failsafe processes
+        if pgrep -f "network-failsafe" >/dev/null 2>&1; then
+          pkill -f "network-failsafe"
+          found_processes=true
+        fi
+
+        # Check for sleep processes related to network-failsafe
+        if pgrep -f "sleep.*network-failsafe" >/dev/null 2>&1; then
+          pkill -f "sleep.*network-failsafe"
+          found_processes=true
+        fi
+
+        if [ "$found_processes" = "true" ]; then
+          echo "Background processes terminated"
+        else
+          echo "No background processes found"
+        fi
       register: process_cleanup_result
-      changed_when: true
+      changed_when: "'Background processes terminated' in process_cleanup_result.stdout"
+      failed_when: false
 
     - name: Comprehensive iptables cleanup
       ansible.builtin.shell: |
@@ -175,8 +193,9 @@
         - /etc/network/interfaces.d/vmwgnat
         # dnsmasq configuration
         - /etc/dnsmasq.d/vmwgnat
-        # D-Bus policy for dnsmasq
+        # D-Bus policy for dnsmasq (both old and new files)
         - /etc/dbus-1/system.d/dnsmasq-dhcpsnat.conf
+        - /etc/dbus-1/system.d/dnsmasq-vmwgnat.conf
         # Systemd service files
         - /etc/systemd/system/dnsmasq@.service
         - /etc/systemd/system/wg-quick@wg0.service.d

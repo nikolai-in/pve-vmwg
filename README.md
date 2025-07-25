@@ -17,6 +17,7 @@ Ansible-скрипты для создания подсети ВМ на Proxmox.
     - [Как работает](#как-работает)
     - [Команды](#команды)
     - [Если что-то пошлось не так](#если-что-то-пошлось-не-так)
+      - [Проблема с запуском контейнеров LXC](#проблема-с-запуском-контейнеров-lxc)
       - [Из консоли серверa Proxmox](#из-консоли-серверa-proxmox)
   - [Тестирование системы](#тестирование-системы)
     - [Быстрая проверка](#быстрая-проверка)
@@ -129,6 +130,7 @@ graph TB
     ├── debug-vmwg0.sh.j2       # диагностика
     ├── dnsmasq-default.conf.j2 # базовая настройка dnsmasq
     ├── dnsmasq-vmwg0.conf.j2   # DHCP для vmwg0
+    ├── dnsmasq-vmwgnat.conf.j2 # D-Bus политика для vmwgnat
     ├── dnsmasq@.service.j2     # systemd сервис
     ├── vmwgnat.j2              # сетевой интерфейс
     └── wg0.conf.j2             # конфиг WireGuard
@@ -202,11 +204,11 @@ ansible-playbook cleanup-vmwg-subnet.yml
 
 Если контейнеры не запускаются с ошибкой D-Bus:
 
-```
+```text
 The name uk.org.thekelleys.dnsmasq.dhcpsnat was not provided by any .service files
 ```
 
-**Причина:** Proxmox ожидает D-Bus интеграцию с dnsmasq для управления DHCP.
+**Причина:** Конфликт D-Bus имен между нашим сервисом и стандартным Proxmox SDN.
 
 **Решение:** Повторно запустите плейбук (исправление уже добавлено):
 
@@ -214,7 +216,14 @@ The name uk.org.thekelleys.dnsmasq.dhcpsnat was not provided by any .service fil
 ansible-playbook deploy-vmwg-subnet.yml
 ```
 
-Подробнее смотрите в файле [DBUS-FIX.md](DBUS-FIX.md).
+**Что исправлено в новой версии:**
+
+- Изменено D-Bus имя с `dhcpsnat` на `vmwgnat` для избежания конфликтов
+- Добавлены ограничения по интерфейсам (`interface=vmwg0`, `bind-interfaces`)
+- Автоматическая очистка старых D-Bus файлов при развертывании
+- Совместимость со стандартными SDN сетями Proxmox
+
+Подробнее смотрите в файлах [DBUS-FIX.md](DBUS-FIX.md) и [DBUS-CONFLICT-FIX.md](DBUS-CONFLICT-FIX.md).
 
 #### Из консоли серверa Proxmox
 
@@ -272,6 +281,9 @@ ip addr show vmwg0
 # Сервисы
 systemctl status wg-quick@wg0
 systemctl status dnsmasq@vmwgnat
+
+# Проверка совместимости с Proxmox SDN
+systemctl status dnsmasq@dhcpsnat  # должен работать без конфликтов
 
 # NAT правила
 iptables -t nat -L POSTROUTING | grep 10.10.0
@@ -371,13 +383,18 @@ ip-forward on                # включаем IP форвардинг
 **`/etc/dnsmasq.d/vmwgnat/00-default.conf`** - базовые настройки
 
 ```bash
-except-interface=lo          # не слушаем на loopback
+# Только работаем с vmwg0 интерфейсом (избегаем конфликтов с Proxmox SDN)
+interface=vmwg0             # только на vmwg0
+except-interface=lo         # не слушаем на loopback
+bind-interfaces             # строгая привязка к интерфейсам
 enable-ra                   # Router Advertisement для IPv6
 quiet-ra                    # тихий режим RA
-bind-dynamic                # динамическая привязка к интерфейсам
 no-hosts                    # не читаем /etc/hosts
 dhcp-leasefile=/var/lib/misc/dnsmasq.vmwgnat.leases
 dhcp-hostsfile=/etc/dnsmasq.d/vmwgnat/ethers  # статические привязки MAC->IP
+
+# D-Bus интеграция с уникальным именем для избежания конфликтов
+enable-dbus=uk.org.thekelleys.dnsmasq.vmwgnat
 
 # Уменьшенный MTU для совместимости с VPN
 dhcp-option=26,1380         # MTU 1380 (1500 - 20 IP - 8 UDP - 32 WireGuard - 60 запас)
@@ -453,6 +470,28 @@ Wants=network-online.target
 # Гарантируем запуск после настройки vmwg0
 After=network.target
 Requires=network.target
+```
+
+**`/etc/dbus-1/system.d/dnsmasq-vmwgnat.conf`** - D-Bus политика для vmwgnat
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE busconfig PUBLIC
+ "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <!-- Политика D-Bus для сервиса vmwgnat -->
+  <!-- Отдельное имя для избежания конфликтов с dhcpsnat -->
+  <policy user="root">
+    <allow own="uk.org.thekelleys.dnsmasq.vmwgnat"/>
+    <allow send_destination="uk.org.thekelleys.dnsmasq.vmwgnat"/>
+    <allow receive_sender="uk.org.thekelleys.dnsmasq.vmwgnat"/>
+  </policy>
+  <policy user="www-data">
+    <allow send_destination="uk.org.thekelleys.dnsmasq.vmwgnat"/>
+    <allow receive_sender="uk.org.thekelleys.dnsmasq.vmwgnat"/>
+  </policy>
+</busconfig>
 ```
 
 ### Диагностические инструменты
