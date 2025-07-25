@@ -26,15 +26,6 @@
         dest: /usr/local/bin/network-failsafe
         mode: "0755"
 
-    - name: Deploy failsafe disarm script (legacy compatibility)
-      ansible.builtin.copy:
-        content: |
-          #!/bin/bash
-          # Legacy compatibility wrapper
-          exec /usr/local/bin/network-failsafe disarm "$@"
-        dest: /usr/local/bin/disarm-failsafe.sh
-        mode: "0755"
-
     - name: Arm network failsafe (5 minute timeout)
       ansible.builtin.command: /usr/local/bin/network-failsafe arm 300
       register: failsafe_result
