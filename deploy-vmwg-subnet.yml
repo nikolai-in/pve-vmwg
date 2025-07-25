@@ -265,6 +265,15 @@
         dest: /root/debug-lxc.sh
         mode: "0755"
 
+    - name: Deploy Proxmox SDN fix script
+      ansible.builtin.template:
+        src: templates/fix-proxmox-sdn.sh.j2
+        dest: /root/fix-proxmox-sdn.sh
+        mode: "0755"
+      tags:
+        - scripts
+        - debug
+
     - name: Add vmwg0 bridge to main Proxmox interfaces file
       ansible.builtin.blockinfile:
         path: /etc/network/interfaces
@@ -390,17 +399,6 @@
         - pveproxy
         - pvedaemon
       failed_when: false
-
-    - name: Deploy Proxmox SDN fix script
-      ansible.builtin.template:
-        src: "{{ playbook_dir }}/templates/fix-proxmox-sdn.sh.j2"
-        dest: "/root/fix-proxmox-sdn.sh"
-        mode: "0755"
-        owner: root
-        group: root
-      tags:
-        - scripts
-        - debug
 
     - name: Deployment complete - show next steps
       ansible.builtin.debug:
