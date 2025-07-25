@@ -198,9 +198,11 @@
         - /etc/dbus-1/system.d/dnsmasq-vmwgnat.conf
         # Systemd service files
         - /etc/systemd/system/dnsmasq@.service
+        - /etc/systemd/system/dnsmasq@vmwgnat.service.d
         - /etc/systemd/system/wg-quick@wg0.service.d
         # Debug and diagnostic scripts
         - /root/debug-vmwg0.sh
+        - /root/debug-dnsmasq.sh
         # Failsafe system files
         - /usr/local/bin/network-failsafe
         - /usr/local/bin/disarm-failsafe.sh

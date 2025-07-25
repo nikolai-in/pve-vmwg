@@ -1,0 +1,58 @@
+#!/bin/bash
+# Диагностика проблем с dnsmasq@vmwgnat
+
+echo "=== Диагностика dnsmasq@vmwgnat ==="
+echo ""
+
+echo "1. Статус сервиса:"
+systemctl status dnsmasq@vmwgnat --no-pager -l
+echo ""
+
+echo "2. Проверка интерфейса vmwg0:"
+if ip link show vmwg0 >/dev/null 2>&1; then
+    echo "✅ Интерфейс vmwg0 существует"
+    ip addr show vmwg0
+    echo ""
+    
+    if ip link show vmwg0 | grep -q "UP"; then
+        echo "✅ Интерфейс vmwg0 поднят"
+    else
+        echo "❌ Интерфейс vmwg0 НЕ поднят"
+    fi
+else
+    echo "❌ Интерфейс vmwg0 НЕ существует"
+fi
+echo ""
+
+echo "3. Тест конфигурации dnsmasq:"
+if dnsmasq --test --conf-dir=/etc/dnsmasq.d/vmwgnat,*.conf; then
+    echo "✅ Конфигурация dnsmasq корректна"
+else
+    echo "❌ Ошибка в конфигурации dnsmasq"
+fi
+echo ""
+
+echo "4. Проверка файлов конфигурации:"
+echo "Файлы в /etc/dnsmasq.d/vmwgnat/:"
+ls -la /etc/dnsmasq.d/vmwgnat/ 2>/dev/null || echo "Директория не найдена"
+echo ""
+
+echo "5. Проверка D-Bus политики:"
+if [ -f /etc/dbus-1/system.d/dnsmasq-vmwgnat.conf ]; then
+    echo "✅ D-Bus политика существует"
+else
+    echo "❌ D-Bus политика отсутствует"
+fi
+echo ""
+
+echo "6. Последние логи сервиса:"
+journalctl -u dnsmasq@vmwgnat --no-pager -n 10
+echo ""
+
+echo "7. Проверка конфликтов портов:"
+echo "Процессы, использующие порт 53:"
+ss -tuln | grep :53 || echo "Нет процессов на порту 53"
+echo ""
+
+echo "8. Другие dnsmasq сервисы:"
+systemctl list-units --type=service | grep dnsmasq || echo "Других dnsmasq сервисов не найдено"

@@ -4,7 +4,7 @@
 # Only operate on vmwg0 interface to avoid conflicts with standard Proxmox SDN
 interface=vmwg0
 except-interface=lo
-bind-interfaces
+bind-dynamic
 enable-ra
 quiet-ra
 no-hosts

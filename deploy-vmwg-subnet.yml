@@ -177,6 +177,16 @@
         state: started
         daemon_reload: true
 
+    - name: Wait for vmwg0 interface to be fully ready
+      ansible.builtin.pause:
+        seconds: 2
+
+    - name: Final verification that vmwg0 interface is ready for dnsmasq
+      ansible.builtin.command: ip link show vmwg0
+      register: vmwg0_link_status
+      failed_when: "'UP' not in vmwg0_link_status.stdout"
+      changed_when: false
+
     - name: Enable and start dnsmasq service for vmwgnat
       ansible.builtin.systemd:
         name: dnsmasq@vmwgnat
@@ -214,6 +224,12 @@
         dest: /root/debug-vmwg0.sh
         mode: "0755"
 
+    - name: Create dnsmasq debug script
+      ansible.builtin.template:
+        src: templates/debug-dnsmasq.sh.j2
+        dest: /root/debug-dnsmasq.sh
+        mode: "0755"
+
     - name: Add vmwg0 bridge to main Proxmox interfaces file
       ansible.builtin.blockinfile:
         path: /etc/network/interfaces
@@ -233,6 +249,26 @@
         create: false
       notify:
         - Reload proxmox services
+
+    - name: Create systemd override directory for dnsmasq@vmwgnat
+      ansible.builtin.file:
+        path: /etc/systemd/system/dnsmasq@vmwgnat.service.d
+        state: directory
+        mode: "0755"
+
+    - name: Create dnsmasq service override for interface dependency
+      ansible.builtin.copy:
+        content: |
+          [Unit]
+          After=network-online.target
+          Wants=network-online.target
+          # Start after vmwg0 interface is configured
+          After=sys-subsystem-net-devices-vmwg0.device
+          Wants=sys-subsystem-net-devices-vmwg0.device
+        dest: /etc/systemd/system/dnsmasq@vmwgnat.service.d/override.conf
+        mode: "0644"
+      notify:
+        - Reload systemd
 
     - name: Create systemd override directory for WireGuard
       ansible.builtin.file:
