@@ -29,6 +29,16 @@ echo -e "\n=== Service Status ==="
 systemctl is-active wg-quick@wg0 && echo "✅ WireGuard: Active" || echo "❌ WireGuard: Inactive"
 systemctl is-active dnsmasq@vmwgnat && echo "✅ dnsmasq: Active" || echo "❌ dnsmasq: Inactive"
 
+echo -e "\n=== dnsmasq Diagnostics ==="
+echo "Configuration test:"
+dnsmasq --test --conf-dir=/etc/dnsmasq.d/vmwgnat,*.conf && echo "✅ Config OK" || echo "❌ Config Error"
+
+echo -e "\nDNSmasq logs (last 5 lines):"
+journalctl -u dnsmasq@vmwgnat --no-pager -n 5 2>/dev/null || echo "No logs available"
+
+echo -e "\nPort 53 usage:"
+ss -tuln | grep :53 || echo "No processes on port 53"
+
 echo -e "\n=== Test Commands ==="
 echo "To test from a VM:"
 echo "  curl -s ifconfig.me  # Should show VPN exit IP"
