@@ -395,36 +395,36 @@
       ansible.builtin.template:
         src: "{{ playbook_dir }}/templates/fix-proxmox-sdn.sh.j2"
         dest: "/root/fix-proxmox-sdn.sh"
-        mode: '0755'
+        mode: "0755"
         owner: root
         group: root
-      tags: 
+      tags:
         - scripts
         - debug
 
     - name: Deployment complete - show next steps
       ansible.builtin.debug:
         msg: |
-          
+
           ✅ Развертывание завершено!
-          
+
           📋 Следующие шаги:
-          
+
           1. Проверить работу vmwgnat:
              systemctl status vmwgnat
-          
+
           2. Восстановить стандартный Proxmox SDN:
              /root/fix-proxmox-sdn.sh
-          
+
           3. Проверить LXC контейнеры:
              pct start 222
-          
+
           4. Диагностика проблем:
              /root/debug-vmwg0.sh
              /root/debug-lxc.sh
-          
+
           ℹ️  IP адреса VM subnet: {{ vm_subnet }}
           🚪 Gateway: {{ vm_gateway }}
           🔗 WireGuard: {{ wg_server_endpoint }}
-          
+
           📝 Настройка завершена!
