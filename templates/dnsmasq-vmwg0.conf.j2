@@ -4,4 +4,3 @@
 # Configure DHCP for the vmwg0 interface with router option pointing to vmwg0 IP
 dhcp-option=tag:dhcpsnat-{{ vm_subnet | replace('.', '-') | replace('/', '-') }},option:router,{{ vm_gateway }}
 dhcp-range=set:dhcpsnat-{{ vm_subnet | replace('.', '-') | replace('/', '-') }},{{ vm_dhcp_range_start }},{{ vm_dhcp_range_end }},255.255.255.0,12h
-interface=vmwg0

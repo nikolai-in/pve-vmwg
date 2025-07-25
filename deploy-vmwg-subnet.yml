@@ -104,10 +104,17 @@
         state: touch
         mode: "0644"
 
-    - name: Deploy D-Bus policy for dnsmasq dhcpsnat service
+    - name: Remove old D-Bus policy file if exists (avoid conflicts)
+      ansible.builtin.file:
+        path: /etc/dbus-1/system.d/dnsmasq-dhcpsnat.conf
+        state: absent
+      notify:
+        - Reload dbus
+
+    - name: Deploy D-Bus policy for dnsmasq vmwgnat service
       ansible.builtin.template:
-        src: templates/dnsmasq-dhcpsnat.conf.j2
-        dest: /etc/dbus-1/system.d/dnsmasq-dhcpsnat.conf
+        src: templates/dnsmasq-vmwgnat.conf.j2
+        dest: /etc/dbus-1/system.d/dnsmasq-vmwgnat.conf
         mode: "0644"
         backup: true
       notify:
